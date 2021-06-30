@@ -254,11 +254,12 @@ def main(
         else join("data", "processed", "technical_discretized", "DENSE")
     )
     stocks = load_OHLCV_files(in_dir)
-    ticks, stock_dfs = zip(*stocks)
     logger.info(f"Loaded {len(stocks)} stocks")
 
     if test_run:
         stocks = random.sample(stocks, k=3)
+
+    ticks, stock_dfs = zip(*stocks)
 
     experiment = None
     if log_comet:
