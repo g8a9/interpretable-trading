@@ -12,6 +12,7 @@ black
 
 numpy
 pandas
+joblib
 ta
 tqdm
 scikit-learn

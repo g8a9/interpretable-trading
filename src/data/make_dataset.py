@@ -14,11 +14,14 @@ from tqdm import tqdm
 
 def load_OHLCV_files(in_dir) -> dict:
     files = glob.glob(join(in_dir, "*.csv"))
-    stock_dfs = dict()
+
+    ticks_stocks = list()
     for f in files:
         tick = splitext(basename(f))[0]
-        stock_dfs[tick] = pd.read_csv(f, index_col=0, header=0, parse_dates=["Date"])
-    return stock_dfs
+        ticks_stocks.append(
+            (tick, pd.read_csv(f, index_col="Date", header=0, parse_dates=["Date"]))
+        )
+    return ticks_stocks
 
 
 def extract_ta_features(stock_df):
