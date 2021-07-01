@@ -81,6 +81,7 @@ def process_stock(
     do_grid_search: bool,
     normalize: bool,
     oversample: bool,
+    seed: int,
     experiment,
 ):
     """Process a single stock.
@@ -221,6 +222,7 @@ def process_stock(
 @click.option("--seed", type=click.INT, default=42)
 @click.option("--save_human_readable", is_flag=True)
 @click.option("--test_run", is_flag=True)
+@click.option("--parallel", is_flag=True)
 def main(
     output_dir,
     classifier,
@@ -236,6 +238,7 @@ def main(
     seed,
     save_human_readable,
     test_run,
+    parallel,
 ):
     hparams = locals()
     random.seed(seed)
@@ -268,24 +271,46 @@ def main(
         exp.log_parameters(hparams)
         exp.log_other("n_stocks", len(stocks))
 
-    results = Parallel(n_jobs=1)(
-        delayed(process_stock)(
-            tick,
-            stock_df,
-            classifier,
-            output_dir,
-            training_type,
-            year,
-            horizon,
-            h_threshold,
-            l_threshold,
-            do_grid_search,
-            normalize,
-            oversample,
-            experiment,
+    if parallel:
+        results = Parallel(n_jobs=1)(
+            delayed(process_stock)(
+                tick,
+                stock_df,
+                classifier,
+                output_dir,
+                training_type,
+                year,
+                horizon,
+                h_threshold,
+                l_threshold,
+                do_grid_search,
+                normalize,
+                oversample,
+                seed,
+                experiment,
+            )
+            for tick, stock_df in tqdm(stocks, desc="Stocks")
         )
-        for tick, stock_df in tqdm(stocks, desc="Stocks")
-    )
+    else:
+        results = [
+            process_stock(
+                tick,
+                stock_df,
+                classifier,
+                output_dir,
+                training_type,
+                year,
+                horizon,
+                h_threshold,
+                l_threshold,
+                do_grid_search,
+                normalize,
+                oversample,
+                seed,
+                experiment,
+            )
+            for tick, stock_df in tqdm(stocks, desc="Stocks")
+        ]
 
     # Save all the results
     create_dir(join(output_dir, "preds"))

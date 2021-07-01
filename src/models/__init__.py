@@ -74,15 +74,13 @@ def instantiate_classifier(classifier, return_grid=False, **kw_classifier):
         clf = RandomForestClassifier(
             n_jobs=-1,
             n_estimators=200,
-            random_state=42,
             class_weight="balanced",
             **params,
         )
     elif classifier == "SVC":
-        clf = SVC(gamma="scale", random_state=42, class_weight="balanced", **params)
+        clf = SVC(gamma="scale", class_weight="balanced", **params)
     elif classifier == "MLP":
         clf = MLPClassifier(
-            random_state=42,
             max_iter=10000,
             early_stopping=True,
             n_iter_no_change=3,
