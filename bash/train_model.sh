@@ -15,6 +15,7 @@ for year in {2007..2017}; do
 
         python src/models/train_model.py \
             out_$year_$model \
-            --training_type year
+            --training_type year \
+            --do_grid_search
 
 done
