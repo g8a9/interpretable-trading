@@ -6,6 +6,8 @@ for year in {2007..2017}; do
 
         python src/models/train_model.py \
             out_$year_$model \
+            $model \
+            $year \
             --training_type year \
             --do_grid_search \
             --normalize
@@ -16,6 +18,8 @@ for year in {2007..2017}; do
 
         python src/models/train_model.py \
             out_$year_$model \
+            $model \
+            $year \
             --training_type year \
             --do_grid_search
 
