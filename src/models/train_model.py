@@ -68,6 +68,15 @@ def score_classifier(y_true, y_pred) -> dict:
     return perf
 
 
+def oversample(X_train, y_train, method):
+    from imblearn.over_sampling import ADASYN, SMOTE
+
+    if method == "adasyn":
+        return ADASYN().fit_resample(X_train, y_train)
+    else:
+        return SMOTE().fit_resample(X_train, y_train)
+
+
 def process_stock(
     tick: str,
     stock_df: pd.DataFrame,
@@ -80,7 +89,7 @@ def process_stock(
     l_threshold: float,
     do_grid_search: bool,
     normalize: bool,
-    oversample: bool,
+    oversampling: bool,
     seed: int,
     experiment,
 ):
@@ -121,6 +130,10 @@ def process_stock(
     X_test = X_test.iloc[:-horizon]
     y_test = y_test.iloc[:-horizon]
 
+    # Oversample if requested
+    if oversampling:
+        X_train, y_train = oversample(X_train, y_train, method=oversampling)
+
     # if a stock is trained on a single target label, e.g. all days are HOLD,
     # just skip it, nothing can be learned
     if y_train.unique().size <= 1:
@@ -149,6 +162,12 @@ def process_stock(
 
         test_pred = gs.predict(X_test)
         test_performance = score_classifier(y_test, test_pred)
+
+        # save the best estimator
+        dump(
+            gs.best_estimator_, join(output_dir, "models", f"best_model_{tick}.joblib")
+        )
+
         return y_test, test_performance, test_pred, gs.best_params_
 
     else:
@@ -250,6 +269,7 @@ def main(
     # args = parser.parse_args()
 
     create_dir(output_dir)
+    create_dir(join(output_dir, "models"))
 
     in_dir = (
         join("data", "processed", "SP500_technical")

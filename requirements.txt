@@ -20,3 +20,4 @@ l3wrapper
 torch
 pytorch-lightning
 comet-ml
+imbalanced-learn
