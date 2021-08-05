@@ -9,6 +9,6 @@ def create_experiment():
     experiment = Experiment(
         api_key=os.environ["COMET_API_KEY"],
         project_name="interpretable-trading",
-        workspace="g8a9",
+        workspace="trading",
     )
     return experiment

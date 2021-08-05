@@ -3,6 +3,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
+from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
 from l3wrapper.l3wrapper import L3Classifier
 import pandas as pd
@@ -16,28 +17,64 @@ PARAMS_GRID = {
         "min_samples_leaf": [0.005, 0.01],
         "max_depth": [None, 5, 10, 20],
     },
-    "MLP": {
-        "hidden_layer_sizes": [(10,), (30,), (90, 30), (10, 10)],
-        "activation": ["relu", "tanh"],
-        "solver": ["lbfgs", "sgd", "adam"],
-        "learning_rate": ["constant", "invscaling"],
-        "learning_rate_init": [2e-5, 1e-4, 1e-3, 1e-2],
-    },
-    "SVC": {
-        "kernel": ["linear", "poly", "rbf"],
-        "degree": [3, 4],
-        "C": [1e-3, 1e-2, 1e-1, 10, 50],
-    },
-    "LG": {
-        "solver": ["newton-cg", "lbfgs", "liblinear", "sag", "saga"],
-        "penalty": ["l1", "l2"],
-        "C": [1e-4, 1e-3, 1e-2, 1e-1, 1, 10],
-    },
+    "MLP": [
+        {
+            "hidden_layer_sizes": [(30,), (90, 30), (30, 10)],
+            "activation": ["relu", "tanh"],
+            "solver": ["sgd"],
+            "learning_rate": ["constant", "invscaling", "adaptive"],
+            "learning_rate_init": [2e-5, 1e-4, 1e-3, 1e-2, 1e-1],
+            "max_iter": [1000],
+            "alpha": [1e-3, 1e-2, 1e-1],
+            "batch_size": [1024],
+        },
+        {
+            "hidden_layer_sizes": [(30,), (90, 30), (30, 10)],
+            "activation": ["relu", "tanh"],
+            "solver": ["adam"],
+            "learning_rate_init": [2e-5, 1e-4, 1e-3, 1e-2, 1e-1],
+            "max_iter": [1000],
+            "alpha": [1e-3, 1e-2, 1e-1],
+            "batch_size": [1024],
+        },
+        {
+            "hidden_layer_sizes": [(30,), (90, 30), (30, 10)],
+            "activation": ["relu", "tanh"],
+            "solver": ["lbfgs"],
+            "max_iter": [15000],
+            "alpha": [1e-3, 1e-2, 1e-1],
+            "batch_size": [1024],
+        },
+    ],
+    "SVC": [
+        {
+            "kernel": ["poly"],
+            "degree": [3, 4, 5],
+            "C": [1e-3, 1e-2, 1e-1, 10, 100],
+        },
+        {
+            "kernel": ["rbf"],
+            "C": [1e-3, 1e-2, 1e-1, 10, 100],
+        },
+    ],
+    "LG": [
+        {
+            "solver": ["liblinear", "saga"],
+            "penalty": ["l1", "l2"],
+            "C": [1e-4, 1e-3, 1e-2, 1e-1, 1, 10],
+        },
+        {
+            "solver": ["newton-cg", "sag", "lbfgs"],
+            "penalty": ["l2"],
+            "C": [1e-4, 1e-3, 1e-2, 1e-1, 1, 10],
+        },
+    ],
     "KNN": {
         "weights": ["uniform", "distance"],
         "n_neighbors": [3, 5, 7],
         "algorithm": ["ball_tree", "kd_tree"],
     },
+    "GNB": {},
     "L3": {
         "min_sup": [0.005],  # [0.005, 0.01, 0.05, 0.1],
         "min_conf": [0.5, 0.25, 0.75],
@@ -64,6 +101,7 @@ PARAMS = {
         "class_weight": "balanced",
         "C": 1,
     },
+    "GNB": {},
     "L3": {
         "min_sup": 0.005,  # [0.005, 0.01, 0.05, 0.1],
         "min_conf": 0.5,
@@ -73,12 +111,19 @@ PARAMS = {
 }
 
 
-def instantiate_classifier(classifier, return_grid=False, **kw_classifier):
+def instantiate_classifier(
+    classifier, return_grid=False, load_default=False, **kw_classifier
+):
     """Instantiate and return a ML model, along with its parameters.
 
     Optionally, return the grid of parameters for grid search
     """
-    params = PARAMS[classifier]
+
+    if load_default:
+        params = PARAMS[classifier]
+    else:
+        params = dict()
+
     params.update(kw_classifier)
     N_JOBS = -1
 
@@ -95,15 +140,14 @@ def instantiate_classifier(classifier, return_grid=False, **kw_classifier):
         clf = SVC(gamma="scale", class_weight="balanced", **params)
     elif classifier == "MLP":
         clf = MLPClassifier(
-            max_iter=1e5,
-            early_stopping=True,
-            n_iter_no_change=3,
             **params,
         )
     elif classifier == "L3":
         clf = L3Classifier(**params)
     elif classifier == "LG":
-        clf = LogisticRegression(n_jobs=N_JOBS, max_iter=1e5, **params)
+        clf = LogisticRegression(n_jobs=N_JOBS, **params)
+    elif classifier == "GNB":
+        clf = GaussianNB()
     else:
         raise NotImplementedError()
 

@@ -1,15 +1,17 @@
 from os.path import join, exists
 
-
+from src.log import create_experiment
 from joblib import Parallel, delayed, dump, load
 import numpy as np
 import pandas as pd
 from itertools import product
 from time import time
+from sklearn import svm
 from sklearn.metrics import f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import TimeSeriesSplit, GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 from tqdm import tqdm
 import logging
 import random
@@ -20,7 +22,6 @@ from src.models import (
     create_dir,
     instantiate_classifier,
 )
-from src.log import create_experiment
 from src.data import load_OHLCV_files, create_target
 from src.data.preparation import TRAIN_SIZE, drop_initial_nans
 
@@ -30,29 +31,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
-
-# def get_train_test(task, cvar_h, stock_tuple):
-#     """Compute the training and testing sets for the current task and stock.
-
-#     The only task now is have each year as a separate dataset.
-#     """
-#     stock_tick, stock_df = stock_tuple[0], stock_tuple[1]
-
-#     # filter data of the current year. TODO Here different tasks
-#     if "ONEYEAR" in task:
-#         year = task.split("-")[1]
-#         stock_df = stock_df.loc[year]
-#     else:
-#         raise NotImplementedError()
-
-#     # get 'y' data
-#     y = get_y(stock_df, cvar_h, L_THRESHOLD, H_THRESHOLD)
-
-#     # split train test
-#     X_train, X_test, y_train, y_test = train_test_split(stock_df, y)
-
-#     # print(X_train.shape, X_test.shape, y_train.shape, y_test.shape)
-#     return stock_tick, X_train, X_test, y_train, y_test
 
 
 def score_classifier(y_true, y_pred) -> dict:
@@ -77,6 +55,48 @@ def oversample(X_train, y_train, method):
         return SMOTE().fit_resample(X_train, y_train)
 
 
+def evaluate_classifier(classifier, X_train, X_val, y_train, y_val):
+    """Objective function"""
+
+    def _evaluate(parameters):
+        clf = SVC(**parameters)
+        clf.fit(X_train, y_train)
+        return {"f1_macro": (f1_score(y_val, clf.predict(X_val), average="macro"), 0.0)}
+
+    if classifier == "SVC":
+        # kernel = trial.suggest_categorical("kernel", ["linear", "poly", "rbf"])
+        # degree = trial.suggest_int("degree", 2, 4)
+        # C = trial.suggest_loguniform("C", 1e-3, 10)
+
+        # clf = SVC(kernel=kernel, degree=degree, C=C)
+        # clf.fit(X_train, y_train)
+
+        # y_pred = clf.predict(X_val)
+        # score = f1_score(y_val, y_pred, average="macro", labels=[0, 2])
+        # return score
+
+        parameters = [
+            {"name": "kernel", "type": "string", "values": ["linear", "poly", "rbf"]},
+            {"name": "degree", "type": "range", "bounds": [3, 4], "value_type": "int"},
+            {
+                "name": "C",
+                "type": "range",
+                "bounds": [1e-4, 10],
+                "value_type": "float",
+                "log_scale": True,
+            },
+        ]
+        best_parameters, values, experiment, model = optimize(
+            parameters=parameters,
+            evaluation_function=_evaluate,
+            objective_name="f1_macro",
+            experiment_name="test",
+            minimize=False,
+            total_trials=4,
+        )
+        print(best_parameters)
+
+
 def process_stock(
     tick: str,
     stock_df: pd.DataFrame,
@@ -93,13 +113,8 @@ def process_stock(
     seed: int,
     experiment,
 ):
-    """Process a single stock.
-
-    Steps: TODO
-    """
+    """Process a single stock."""
     config = (tick, year, horizon, training_type)
-
-    stime = time()
 
     # scores_file = get_scores_filename(tick)
     # scores_path = join(output_dir, scores_file)
@@ -130,21 +145,42 @@ def process_stock(
     X_test = X_test.iloc[:-horizon]
     y_test = y_test.iloc[:-horizon]
 
-    # Oversample if requested
-    if oversampling:
-        X_train, y_train = oversample(X_train, y_train, method=oversampling)
-
     # if a stock is trained on a single target label, e.g. all days are HOLD,
     # just skip it, nothing can be learned
     if y_train.unique().size <= 1:
         logger.info(f"Skipping {config} due to a single class in the training set")
         return
 
+    if oversampling:
+        X_train_, y_train_ = oversample(X_train, y_train, method=oversampling)
+
     if do_grid_search:
+        # X_train_, X_val_, y_train_, y_val_ = train_test_split(
+        #     X_train, y_train, train_size=0.8, shuffle=False
+        # )
+
+        # study = optuna.create_study(
+        #     study_name=f"study_{tick}_{year}", direction="maximize"
+        # )
+        # study.optimize(
+        #     lambda t: evaluate_classifier(
+        #         t, classifier, X_train_, X_val_, y_train_, y_val_
+        #     ),
+        #     n_trials=20,
+        #     timeout=120,
+        #     n_jobs=-1,
+        # )
+        # print(study.best_params)
+
+        # evaluate_classifier(classifier, X_train_, X_val_, y_train_, y_val_)
+
         clf, params, grid = instantiate_classifier(classifier, return_grid=True)
 
         # update param grid keys to match the use of pipeline
-        grid = {f"clf__{k}": v for k, v in grid.items()}
+        if isinstance(grid, list):
+            grid = [{f"clf__{k}": v for k, v in g.items()} for g in grid]
+        else:
+            grid = {f"clf__{k}": v for k, v in grid.items()}
 
         if normalize:
             pipeline = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
@@ -156,7 +192,7 @@ def process_stock(
             param_grid=grid,
             scoring="f1_macro",
             n_jobs=-1,
-            cv=TimeSeriesSplit(n_splits=5),
+            cv=TimeSeriesSplit(n_splits=3),
         )
         gs.fit(X_train, y_train)
 
@@ -185,44 +221,6 @@ def process_stock(
 
         return y_test, test_performance, test_pred
 
-    #     if args.classifier == Classifier.L3:
-    #         pipeline = Pipeline([("clf", clf)])
-    #         pipeline.fit(
-    #             X_train,
-    #             y_train,
-    #             clf__column_names=X_train.columns,
-    #             clf__save_human_readable=args.save_human_readable,
-    #         )
-    #         if args.save_human_readable:  # save the rules into the output directory
-    #             shutil.move(
-    #                 pipeline["clf"].current_token_,
-    #                 join(out_dir, f"{stock_tick}_{pipeline['clf'].current_token_}"),
-    #             )
-    #     else:
-    #         # introduce std normalization for classifiers on continuous variables
-    #         pipeline = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
-    #         pipeline.fit(X_train, y_train)
-
-    #     y_pred = pipeline.predict(X_test)
-    #     estimator = pipeline["clf"]
-
-    # # save predictions and classifier's scores and timings
-    # # here we save either stats from the best gs estimator or the single estimator
-    # res_df = pd.DataFrame(
-    #     [y_test.values, y_pred], columns=["y_true", "y_pred"], index=X_test.index
-    # )
-    # res_df.to_csv(join(out_dir, f"pred_{stock_tick}.csv"), header=True, index=True)
-
-    # with open(join(out_dir, classifier_file), "a") as fp:
-    #     fp.write(f"{stock_tick},{estimator},{acc},{bal_acc},{f1_all},{f1_updown}\n")
-
-    # with open(join(out_dir, timing_file), "a") as fp:
-    #     fp.write(f"{stock_tick},{int(time() - stime)}\n")
-
-    # # finally, save the model itself. If classifier=L3 here we save the rule sets and the
-    # # information on the transaction labeled
-    # dump(estimator, join(out_dir, f"estimator_{stock_tick}.joblib"), compress=3)
-
 
 @click.command()
 @click.argument("output_dir", type=click.Path(file_okay=False, writable=True))
@@ -242,6 +240,7 @@ def process_stock(
 @click.option("--save_human_readable", is_flag=True)
 @click.option("--test_run", is_flag=True)
 @click.option("--parallel", is_flag=True)
+@click.option("--n_workers", type=click.INT, default=16)
 def main(
     output_dir,
     classifier,
@@ -258,15 +257,10 @@ def main(
     save_human_readable,
     test_run,
     parallel,
+    n_workers,
 ):
     hparams = locals()
     random.seed(seed)
-
-    # parser.add_argument(
-    #     "--rule_sets_modifier", type=str, choices=["level1"], default=None
-    # )
-    # parser.add_argument("--test_run", action="store_true")
-    # args = parser.parse_args()
 
     create_dir(output_dir)
     create_dir(join(output_dir, "models"))
@@ -279,10 +273,12 @@ def main(
     stocks = load_OHLCV_files(in_dir)
     logger.info(f"Loaded {len(stocks)} stocks")
 
+    stocks = sorted(stocks, key=lambda s: s[0])
+
     if test_run:
         stocks = random.sample(stocks, k=3)
 
-    ticks, stock_dfs = zip(*stocks)
+    ticks, _ = zip(*stocks)
 
     experiment = None
     if log_comet:
@@ -292,7 +288,7 @@ def main(
         exp.log_other("n_stocks", len(stocks))
 
     if parallel:
-        results = Parallel(n_jobs=1)(
+        results = Parallel(n_jobs=n_workers)(
             delayed(process_stock)(
                 tick,
                 stock_df,
@@ -361,83 +357,10 @@ def main(
             join(output_dir, "preds", "test_preds.csv"), index_label="Date"
         )
 
+    if log_comet:
+        exp.log_metrics(test_perf.mean().to_dict())
+
     return
-
-    # # process a single configuration
-    # for task, disc, cvar_h in tqdm(configs, desc="Configs"):
-    #     logging.info(f"Starting config: {task, disc, cvar_h}")
-    #     # create a folder for a given configuration
-    #     out_dir = join(job_dir, f"{task}_{args.classifier}_{disc}_{cvar_h}")
-    #     out_dir_contents = None
-    #     if exists(out_dir):
-    #         out_dir_contents = listdir(out_dir)
-    #     else:
-    #         mkdir(out_dir)
-
-    #     if disc == "COARSE":
-    #         stocks_dict = stock_classic_dfs
-    #     elif disc == "DENSE":
-    #         stocks_dict = stock_express_dfs
-    #     elif disc == "NO":
-    #         stocks_dict = stock_dfs
-    #     else:
-    #         raise NotImplementedError()
-
-    #     # Generate and store in memory each training and testing sets
-    #     stime = time()
-    #     config_stocks = product([task], [cvar_h], [disc], stocks_dict.items())
-    #     data = Parallel(n_jobs=-1)(
-    #         delayed(get_train_test)(c[0], c[1], c[3]) for c in config_stocks
-    #     )
-    #     with open(join(out_dir, timing_file), "a") as timing_fp:
-    #         timing_fp.write(f"Preprocessing,{int(time() - stime)}\n")
-
-    #     # process a single stock, given a configuration
-    #     valtime = time()
-
-    #     if args.classifier != Classifier.L3:
-    #         for stock_tick, X_train, X_test, y_train, y_test in tqdm(
-    #             data, desc="Stocks"
-    #         ):
-    #             process_stock(
-    #                 task,
-    #                 disc,
-    #                 cvar_h,
-    #                 out_dir,
-    #                 out_dir_contents,
-    #                 args,
-    #                 stock_tick,
-    #                 X_train,
-    #                 X_test,
-    #                 y_train,
-    #                 y_test,
-    #                 classifier_file,
-    #                 timing_file,
-    #             )
-    #     else:
-    #         Parallel(n_jobs=-1)(
-    #             delayed(process_stock)(
-    #                 task,
-    #                 disc,
-    #                 cvar_h,
-    #                 out_dir,
-    #                 out_dir_contents,
-    #                 args,
-    #                 stock_tick,
-    #                 X_train,
-    #                 X_test,
-    #                 y_train,
-    #                 y_test,
-    #                 classifier_file,
-    #                 timing_file,
-    #             )
-    #             for stock_tick, X_train, X_test, y_train, y_test in tqdm(
-    #                 data, desc="Stocks"
-    #             )
-    #         )
-
-    #     with open(join(out_dir, timing_file), "a") as timing_fp:
-    #         timing_fp.write(f"TuningAndValidation,{int(time() - valtime)}\n")
 
 
 if __name__ == "__main__":
