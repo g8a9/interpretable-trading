@@ -17,6 +17,7 @@ import logging
 import random
 import click
 import random
+import warnings
 
 from src.models import (
     create_dir,
@@ -24,6 +25,7 @@ from src.models import (
 )
 from src.data import load_OHLCV_files, create_target
 from src.data.preparation import TRAIN_SIZE, drop_initial_nans
+from src.models import lstm
 
 
 logging.basicConfig(
@@ -112,6 +114,14 @@ def process_stock(
     oversampling: bool,
     seed: int,
     experiment,
+    seq_length,
+    batch_size,
+    max_epochs,
+    lr,
+    reduce_lr,
+    gpus,
+    early_stop,
+    stateful,
 ):
     """Process a single stock."""
     config = (tick, year, horizon, training_type)
@@ -154,6 +164,28 @@ def process_stock(
     if oversampling:
         X_train_, y_train_ = oversample(X_train, y_train, method=oversampling)
 
+    if classifier == "LSTM":
+
+        y_pred = lstm.train_and_test_lstm(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            3,
+            seq_length,
+            batch_size,
+            max_epochs,
+            lr,
+            reduce_lr,
+            gpus,
+            seed,
+            early_stop,
+            stateful,
+        )
+
+        test_performance = score_classifier(y_test, y_pred)
+        return y_test, test_performance, y_pred
+
     if do_grid_search:
         # X_train_, X_val_, y_train_, y_val_ = train_test_split(
         #     X_train, y_train, train_size=0.8, shuffle=False
@@ -193,8 +225,15 @@ def process_stock(
             scoring="f1_macro",
             n_jobs=-1,
             cv=TimeSeriesSplit(n_splits=3),
+            verbose=1,
         )
-        gs.fit(X_train, y_train)
+
+        if classifier == "MLP":
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                gs.fit(X_train, y_train)
+        else:
+            gs.fit(X_train, y_train)
 
         test_pred = gs.predict(X_test)
         test_performance = score_classifier(y_test, test_pred)
@@ -241,6 +280,14 @@ def process_stock(
 @click.option("--test_run", is_flag=True)
 @click.option("--parallel", is_flag=True)
 @click.option("--n_workers", type=click.INT, default=16)
+@click.option("--seq_length", type=click.INT, default=5)
+@click.option("--batch_size", type=click.INT, default=128)
+@click.option("--max_epochs", type=click.INT, default=30)
+@click.option("--lr", type=click.FLOAT, default=2e-5)
+@click.option("--early_stop", type=click.INT, default=0)
+@click.option("--gpus", type=click.INT, default=0)
+@click.option("--stateful", is_flag=True)
+@click.option("--reduce_lr", type=click.INT, default=0)
 def main(
     output_dir,
     classifier,
@@ -258,7 +305,16 @@ def main(
     test_run,
     parallel,
     n_workers,
+    seq_length,
+    batch_size,
+    max_epochs,
+    lr,
+    early_stop,
+    gpus,
+    stateful,
+    reduce_lr,
 ):
+
     hparams = locals()
     random.seed(seed)
 
