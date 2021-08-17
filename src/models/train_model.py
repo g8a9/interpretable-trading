@@ -1,3 +1,4 @@
+from functools import reduce
 from os.path import join, exists
 
 from src.log import create_experiment
@@ -57,48 +58,6 @@ def oversample(X_train, y_train, method):
         return SMOTE().fit_resample(X_train, y_train)
 
 
-def evaluate_classifier(classifier, X_train, X_val, y_train, y_val):
-    """Objective function"""
-
-    def _evaluate(parameters):
-        clf = SVC(**parameters)
-        clf.fit(X_train, y_train)
-        return {"f1_macro": (f1_score(y_val, clf.predict(X_val), average="macro"), 0.0)}
-
-    if classifier == "SVC":
-        # kernel = trial.suggest_categorical("kernel", ["linear", "poly", "rbf"])
-        # degree = trial.suggest_int("degree", 2, 4)
-        # C = trial.suggest_loguniform("C", 1e-3, 10)
-
-        # clf = SVC(kernel=kernel, degree=degree, C=C)
-        # clf.fit(X_train, y_train)
-
-        # y_pred = clf.predict(X_val)
-        # score = f1_score(y_val, y_pred, average="macro", labels=[0, 2])
-        # return score
-
-        parameters = [
-            {"name": "kernel", "type": "string", "values": ["linear", "poly", "rbf"]},
-            {"name": "degree", "type": "range", "bounds": [3, 4], "value_type": "int"},
-            {
-                "name": "C",
-                "type": "range",
-                "bounds": [1e-4, 10],
-                "value_type": "float",
-                "log_scale": True,
-            },
-        ]
-        best_parameters, values, experiment, model = optimize(
-            parameters=parameters,
-            evaluation_function=_evaluate,
-            objective_name="f1_macro",
-            experiment_name="test",
-            minimize=False,
-            total_trials=4,
-        )
-        print(best_parameters)
-
-
 def process_stock(
     tick: str,
     stock_df: pd.DataFrame,
@@ -114,14 +73,7 @@ def process_stock(
     oversampling: bool,
     seed: int,
     experiment,
-    seq_length,
-    batch_size,
-    max_epochs,
-    lr,
-    reduce_lr,
-    gpus,
-    early_stop,
-    stateful,
+    **kwargs,
 ):
     """Process a single stock."""
     config = (tick, year, horizon, training_type)
@@ -134,6 +86,9 @@ def process_stock(
     # Create discrete targets
     targets = create_target(stock_df, horizon, l_threshold, h_threshold)
     assert len(targets) == len(stock_df)
+
+    if classifier == "L3":
+        stock_df = stock_df.drop(columns=["Open", "High", "Low", "Close", "Volume"])
 
     #  Create training and testing split (eventually validation)
     X, y = stock_df.loc[year, :], targets.loc[year]
@@ -161,26 +116,26 @@ def process_stock(
         logger.info(f"Skipping {config} due to a single class in the training set")
         return
 
-    if oversampling:
+    #  Oversampling for all but L3
+    if oversampling and classifier != "L3":
         X_train_, y_train_ = oversample(X_train, y_train, method=oversampling)
 
     if classifier == "LSTM":
-
         y_pred = lstm.train_and_test_lstm(
             X_train,
             y_train,
             X_test,
             y_test,
             3,
-            seq_length,
-            batch_size,
-            max_epochs,
-            lr,
-            reduce_lr,
-            gpus,
+            kwargs["seq_length"],
+            kwargs["batch_size"],
+            kwargs["max_epochs"],
+            kwargs["lr"],
+            kwargs["reduce_lr"],
+            kwargs["gpus"],
             seed,
-            early_stop,
-            stateful,
+            kwargs["early_stop"],
+            kwargs["stateful"],
         )
 
         test_performance = score_classifier(y_test, y_pred)
@@ -206,7 +161,15 @@ def process_stock(
 
         # evaluate_classifier(classifier, X_train_, X_val_, y_train_, y_val_)
 
-        clf, params, grid = instantiate_classifier(classifier, return_grid=True)
+        if classifier == "L3":
+            # TODO rule_set_modifier can become an hparam
+            clf, params, grid = instantiate_classifier(
+                classifier,
+                return_grid=True,
+                rule_sets_modifier=kwargs["rule_sets_modifier"],
+            )
+        else:
+            clf, params, grid = instantiate_classifier(classifier, return_grid=True)
 
         # update param grid keys to match the use of pipeline
         if isinstance(grid, list):
@@ -214,7 +177,8 @@ def process_stock(
         else:
             grid = {f"clf__{k}": v for k, v in grid.items()}
 
-        if normalize:
+        #  Normalize for all classifiers but L3
+        if normalize and classifier != "L3":
             pipeline = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
         else:
             pipeline = Pipeline([("clf", clf)])
@@ -246,6 +210,8 @@ def process_stock(
         return y_test, test_performance, test_pred, gs.best_params_
 
     else:
+        raise RuntimeError("We don't want to do that now.")
+
         # instantiate a model and validate it
         clf, _ = instantiate_classifier(classifier)
 
@@ -288,6 +254,7 @@ def process_stock(
 @click.option("--gpus", type=click.INT, default=0)
 @click.option("--stateful", is_flag=True)
 @click.option("--reduce_lr", type=click.INT, default=0)
+@click.option("--rule_sets_modifier", type=click.STRING, default="standard")
 def main(
     output_dir,
     classifier,
@@ -313,6 +280,7 @@ def main(
     gpus,
     stateful,
     reduce_lr,
+    rule_sets_modifier,
 ):
 
     hparams = locals()
@@ -324,7 +292,7 @@ def main(
     in_dir = (
         join("data", "processed", "SP500_technical")
         if classifier != "L3"
-        else join("data", "processed", "technical_discretized", "DENSE")
+        else join("data", "processed", "SP500_technical_discretized", "DENSE")
     )
     stocks = load_OHLCV_files(in_dir)
     logger.info(f"Loaded {len(stocks)} stocks")
@@ -360,6 +328,15 @@ def main(
                 oversample,
                 seed,
                 experiment,
+                seq_length=seq_length,  # LSTM args
+                batch_size=batch_size,
+                max_epochs=max_epochs,
+                lr=lr,
+                reduce_lr=reduce_lr,
+                early_stop=early_stop,
+                gpus=gpus,
+                stateful=stateful,
+                rule_sets_modifier=rule_sets_modifier,  #  L3 args
             )
             for tick, stock_df in tqdm(stocks, desc="Stocks")
         )
@@ -380,6 +357,15 @@ def main(
                 oversample,
                 seed,
                 experiment,
+                seq_length=seq_length,  #  LSTM args
+                batch_size=batch_size,
+                max_epochs=max_epochs,
+                lr=lr,
+                reduce_lr=reduce_lr,
+                early_stop=early_stop,
+                gpus=gpus,
+                stateful=stateful,
+                rule_sets_modifier=rule_sets_modifier,  #  L3 args
             )
             for tick, stock_df in tqdm(stocks, desc="Stocks")
         ]

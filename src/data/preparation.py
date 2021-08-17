@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-CLASSES = [0, 1, 2]  #  ["DOWN", "HOLD", "UP"]
+CLASSES = [0, 1, 2]
 TRAIN_SIZE = 0.8
 
 

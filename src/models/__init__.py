@@ -19,16 +19,18 @@ PARAMS_GRID = {
     },
     "MLP": [
         {
-            "hidden_layer_sizes": [(30,), (90, 30), (30, 10)],
+            "hidden_layer_sizes": [(100,), (100, 30)],
             "activation": ["relu", "tanh"],
             "solver": ["adam"],
             "learning_rate_init": [2e-5, 1e-4, 1e-3, 1e-2],
             "max_iter": [1000],
             "alpha": [1e-3, 1e-2],
             "batch_size": [1024],
+            "early_stopping": [True],
+            "n_iter_no_change": [100],
         },
         {
-            "hidden_layer_sizes": [(30,), (90, 30), (30, 10)],
+            "hidden_layer_sizes": [(100,), (100, 30)],
             "activation": ["relu", "tanh"],
             "learning_rate_init": [2e-5, 1e-4, 1e-3, 1e-2],
             "solver": ["lbfgs"],
@@ -67,7 +69,7 @@ PARAMS_GRID = {
     },
     "GNB": {},
     "L3": {
-        "min_sup": [0.005],  # [0.005, 0.01, 0.05, 0.1],
+        "min_sup": [0.005, 0.01, 0.05, 0.1],
         "min_conf": [0.5, 0.25, 0.75],
         "max_matching": [1, 3],
         "max_length": [0, 5],

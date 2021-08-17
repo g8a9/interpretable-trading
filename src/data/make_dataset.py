@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 
 
-def load_OHLCV_files(in_dir) -> dict:
+def load_OHLCV_files(in_dir):
     files = glob.glob(join(in_dir, "*.csv"))
 
     ticks_stocks = list()

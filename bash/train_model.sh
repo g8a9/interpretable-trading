@@ -26,6 +26,15 @@ for year in {2007..2017}; do
             --do_grid_search \
             --log_comet
 
+
+    python src/models/train_model.py \
+        output/year/out_${year}_${model} \
+        L3 \
+        ${year} \
+        --training_type year \
+        --do_grid_search \
+        --log_comet
+
     done
 
 done
