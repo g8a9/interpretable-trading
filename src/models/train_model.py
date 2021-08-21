@@ -196,6 +196,14 @@ def process_stock(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 gs.fit(X_train, y_train)
+
+        elif classifier == "L3":
+            gs.fit(
+                X_train,
+                y_train,
+                clf__column_names=X_train.columns,
+                clf__remove_training_dir=True,
+            )
         else:
             gs.fit(X_train, y_train)
 
@@ -206,6 +214,13 @@ def process_stock(
         dump(
             gs.best_estimator_, join(output_dir, "models", f"best_model_{tick}.joblib")
         )
+
+        # for L3 save also the rules
+        if classifier == "L3":
+            create_dir(join(output_dir, "rules", tick))
+            gs.best_estimator_.named_steps["clf"].save_rules(
+                join(output_dir, "rules", tick)
+            )
 
         return y_test, test_performance, test_pred, gs.best_params_
 
@@ -242,7 +257,6 @@ def process_stock(
 @click.option("--h_threshold", type=click.FLOAT, default=1)
 @click.option("--l_threshold", type=click.FLOAT, default=-1)
 @click.option("--seed", type=click.INT, default=42)
-@click.option("--save_human_readable", is_flag=True)
 @click.option("--test_run", is_flag=True)
 @click.option("--parallel", is_flag=True)
 @click.option("--n_workers", type=click.INT, default=16)
@@ -268,7 +282,6 @@ def main(
     h_threshold,
     l_threshold,
     seed,
-    save_human_readable,
     test_run,
     parallel,
     n_workers,
@@ -288,6 +301,8 @@ def main(
 
     create_dir(output_dir)
     create_dir(join(output_dir, "models"))
+    if classifier == "L3":
+        create_dir(join(output_dir, "rules"))
 
     in_dir = (
         join("data", "processed", "SP500_technical")
