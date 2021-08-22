@@ -280,10 +280,11 @@ def train_and_test_lstm(
         bidirectional=False,
     )
 
+    tick = kwargs["tick"]
     model_checkpoint = pl.callbacks.ModelCheckpoint(
         monitor="val_loss",
         dirpath=kwargs["model_dir"],
-        filename="{kwargs['tick']}-{epoch}-{val_loss:.3f}-{train_loss:.3f}",
+        filename="{tick}-{epoch}-{val_loss:.3f}-{train_loss:.3f}",
     )
     callbacks = [model_checkpoint]
 
