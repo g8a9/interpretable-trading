@@ -227,7 +227,7 @@ def train_and_test_lstm(
     seed,
     early_stop,
     stateful,
-    log_comet
+    comet_experiment=None,
 ):
     pl.seed_everything(seed)
 
@@ -291,12 +291,13 @@ def train_and_test_lstm(
         callbacks.append(pl.callbacks.EarlyStopping("val_loss", patience=early_stop))
 
     #  loggers
-    if log_comet:
+    if comet_experiment:
         comet_logger = CometLogger(
-            api_key=os.environ.get("COMET_API_KEY"),
+            save_dir=".",
             workspace="trading",  # Optional
             project_name="interpretable-trading",  # Optional
         )
+        comet_logger.experiment = comet_experiment
     else:
         comet_logger = None
 
