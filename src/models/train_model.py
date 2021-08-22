@@ -265,7 +265,7 @@ def process_stock(
 @click.option("--max_epochs", type=click.INT, default=30)
 @click.option("--lr", type=click.FLOAT, default=2e-5)
 @click.option("--early_stop", type=click.INT, default=0)
-@click.option("--gpus", type=click.INT, default=0)
+@click.option("--gpus", type=click.INT, default=1)
 @click.option("--stateful", is_flag=True)
 @click.option("--reduce_lr", type=click.INT, default=0)
 @click.option("--rule_sets_modifier", type=click.STRING, default="standard")
