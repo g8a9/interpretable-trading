@@ -227,7 +227,7 @@ def train_and_test_lstm(
     seed,
     early_stop,
     stateful,
-    comet_experiment=None,
+    **kwargs,
 ):
     pl.seed_everything(seed)
 
@@ -282,8 +282,8 @@ def train_and_test_lstm(
 
     model_checkpoint = pl.callbacks.ModelCheckpoint(
         monitor="val_loss",
-        dirpath="models",
-        filename="PL-{epoch}-{val_loss:.3f}-{train_loss:.3f}",
+        dirpath=kwargs["model_dir"],
+        filename="{kwargs['tick']}-{epoch}-{val_loss:.3f}-{train_loss:.3f}",
     )
     callbacks = [model_checkpoint]
 
@@ -291,13 +291,13 @@ def train_and_test_lstm(
         callbacks.append(pl.callbacks.EarlyStopping("val_loss", patience=early_stop))
 
     #  loggers
-    if comet_experiment:
+    if kwargs["comet_experiment"]:
         comet_logger = CometLogger(
             save_dir=".",
             workspace="trading",  # Optional
             project_name="interpretable-trading",  # Optional
         )
-        comet_logger.experiment = comet_experiment
+        comet_logger.experiment = kwargs["comet_experiment"]
     else:
         comet_logger = None
 
