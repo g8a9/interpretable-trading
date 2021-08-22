@@ -3,6 +3,16 @@ interpretable-trading
 
 Quantitative trading with interpretable fashion.
 
+
+Train models
+---
+
+```bash
+./bash/train_model_10seeds.sh MLP
+./bash/train_model_10seeds.sh LSTM
+```
+
+
 Project Organization
 ------------
 
