@@ -136,6 +136,7 @@ def process_stock(
             seed,
             kwargs["early_stop"],
             kwargs["stateful"],
+            experiment
         )
 
         test_performance = score_classifier(y_test, y_pred)

@@ -227,19 +227,28 @@ def train_and_test_lstm(
     seed,
     early_stop,
     stateful,
+    log_comet
 ):
     pl.seed_everything(seed)
 
-    if num_classes == 3:
-        # use only labels >= 0
-        y_train = labels_to_torchlabels(y_train)
-        y_test = labels_to_torchlabels(y_test)
+    # y_train = y_train.to_numpy()
+    # y_test = y_test.to_numpy()
+
+    # if num_classes == 3:
+    #    # use only labels >= 0
+    #    y_train = labels_to_torchlabels(y_train)
+    #    y_test = labels_to_torchlabels(y_test)
 
     class_weights = get_class_weights(y_train)
 
     # TODO can we modify class weights in a better way?
     # class_weights[0] *= 2
     # class_weights[2] *= 2
+
+    X_train = X_train.to_numpy()
+    X_test = X_test.to_numpy()
+    y_train = y_train.to_numpy()
+    y_test = y_test.to_numpy()
 
     print("Class weights computed:", class_weights)
 
@@ -282,11 +291,14 @@ def train_and_test_lstm(
         callbacks.append(pl.callbacks.EarlyStopping("val_loss", patience=early_stop))
 
     #  loggers
-    comet_logger = CometLogger(
-        api_key=os.environ.get("COMET_API_KEY"),
-        workspace="trading",  # Optional
-        project_name="interpretable-trading",  # Optional
-    )
+    if log_comet:
+        comet_logger = CometLogger(
+            api_key=os.environ.get("COMET_API_KEY"),
+            workspace="trading",  # Optional
+            project_name="interpretable-trading",  # Optional
+        )
+    else:
+        comet_logger = None
 
     # Initialize a trainer
     trainer = pl.Trainer(
