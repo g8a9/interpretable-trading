@@ -291,15 +291,16 @@ def train_and_test_lstm(
         callbacks.append(pl.callbacks.EarlyStopping("val_loss", patience=early_stop))
 
     #  loggers
-    if kwargs["comet_experiment"]:
-        comet_logger = CometLogger(
-            save_dir=".",
-            workspace="trading",  # Optional
-            project_name="interpretable-trading",  # Optional
-        )
-        comet_logger.experiment = kwargs["comet_experiment"]
-    else:
-        comet_logger = None
+    comet_logger = None
+    # if kwargs["comet_experiment"]:
+    #     comet_logger = CometLogger(
+    #         save_dir=".",
+    #         workspace="trading",  # Optional
+    #         project_name="interpretable-trading",  # Optional
+    #     )
+    #     comet_logger.experiment = kwargs["comet_experiment"]
+    # else:
+    #     comet_logger = None
 
     # Initialize a trainer
     trainer = pl.Trainer(
@@ -335,7 +336,7 @@ def train_and_test_lstm(
 
         y_preds = torch.cat(y_preds).squeeze(-1).numpy()
 
-    if num_classes == 3:
-        y_preds = torchlabels_to_labels(y_preds)
+    # if num_classes == 3:
+    #     y_preds = torchlabels_to_labels(y_preds)
 
     return y_preds
