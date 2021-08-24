@@ -121,6 +121,18 @@ def process_stock(
         X_train_, y_train_ = oversample(X_train, y_train, method=oversampling)
 
     if classifier == "LSTM":
+
+        #  disable model and experiment logging when training on single stocks
+        if not kwargs.get("aggregation_type", None):
+            save_model = False
+            comet_experiment = None
+            logger.info(
+                "No aggregation of stocks: disabling model and experiment logging."
+            )
+        else:
+            save_model = True
+            comet_experiment = experiment
+
         y_pred = lstm.train_and_test_lstm(
             X_train,
             y_train,
@@ -136,15 +148,17 @@ def process_stock(
             seed,
             kwargs["early_stop"],
             kwargs["stateful"],
-            comet_experiment=experiment,
+            comet_experiment=comet_experiment,
             model_dir=join(output_dir, "models"),
             tick=tick,
+            save_model=save_model,
         )
 
         test_performance = score_classifier(y_test, y_pred)
         return y_test, test_performance, y_pred
 
     if do_grid_search:
+        logger.info(f"Grid search for {classifier} requested.")
         # X_train_, X_val_, y_train_, y_val_ = train_test_split(
         #     X_train, y_train, train_size=0.8, shuffle=False
         # )
