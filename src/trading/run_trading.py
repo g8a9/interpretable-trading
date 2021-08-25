@@ -4,6 +4,8 @@
 from os import listdir, mkdir
 from os.path import join, exists
 
+from seaborn.rcmod import reset_defaults
+
 from src.log import create_experiment
 
 from tqdm import tqdm
@@ -23,10 +25,56 @@ from src.trading.style import (
     DEFAULT_MARKER_SIZE,
 )
 
+logging.basicConfig(
+    format="%(asctime)s:%(name)s:%(levelname)s:%(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 sns.set(style="whitegrid", context="paper", font_scale=2.3, rc={"lines.linewidth": 2.3})
+
+#  Setup output files and folders
+CLASSIFIER_COMPARISON_FILE = "classifiers_comparison.csv"
+CLASSIFIER_SUMMARY_FILE = "classifiers_summary.csv"
+YEARLY_MEAN_FILE = "yearly_mean.csv"
+EQUITY_FIG_FILE = "equity.pdf"
+OP_FILE = "operations.csv"
+OP_TREND_FILE = "operations_trend.pdf"
+OP_VS_EQUITY_FILE = "operations_vs_equity.pdf"
+
+TradingStats = namedtuple(
+    "TradingStats",
+    [
+        "Year",
+        "Classifier",
+        "EquityFinal",
+        "EquityMax",
+        "EquityMin",
+        "EquityMean",
+        "EquityStd",
+        "OpCount",
+        "OpLONGCount",
+        "OpSHORTCount",
+        "OpClosedSTOPLOSS_perc",
+        "OpClosedINVERSE_perc",
+        "OpClosedMAXLENGTH_perc",
+        "OpLengthMean_days",
+        "OpLengthStd_days",
+        "OpReturnMean",
+        "OpReturnStd",
+        "OpProfitMean_perc",
+        "OpProfitStd_perc",
+        "OpCapInvestedMean",
+        "OpCapInvestedStd",
+        "OpFeesMean",
+        "OpFeesStd",
+        "OpPerStockMean",
+        "OpPerStockStd",
+    ],
+)
 
 
 def log_fig(experiment, file_path):
@@ -36,11 +84,125 @@ def log_fig(experiment, file_path):
     experiment.log_image(file_path)
 
 
+def trade_with_signals(args, classifier, stocks, signals_df, output_dir):
+
+    simulation = trading.TradingSimulation(
+        initial_capital=args.initial_capital,
+        stop_loss_tr=args.stop_loss_tr,
+        investment=args.investment,
+        stocks=stocks,
+        fixed_fee=args.fixed_fee,
+        percentage_fee=args.percentage_fee,
+        max_opened=args.max_opened,
+        max_opened_per_day=args.max_opened_per_day,
+        max_duration=args.max_duration,
+    )
+    logging.debug(
+        f"Trading simulation setup, "
+        f"Initial capital {args.initial_capital}, "
+        f"stop loss tr {args.stop_loss_tr}, "
+        f"investment per day {args.investment}, "
+        f"num stocks {len(stocks)}, "
+        f"fixed fee {args.fixed_fee}, "
+        f"percentage_fee {args.percentage_fee}, "
+        f"max opened {args.max_opened}, "
+        f"max opened per day {args.max_opened_per_day}, "
+        f"max_duration {args.max_duration}."
+    )
+    positions, results_df = simulation.trade(signals_df)
+    positions_df = pd.DataFrame([p.to_dict() for p in positions])
+    assert len(positions) > 0, "At least on position should have been opened"
+
+    # create row for classifiers comparison
+    ts = TradingStats(
+        args.year,
+        classifier,
+        results_df.equity_by_day.iloc[-1],
+        results_df.equity_by_day.max(),
+        results_df.equity_by_day.min(),
+        results_df.equity_by_day.mean(),
+        results_df.equity_by_day.std(),
+        positions_df.shape[0],
+        positions_df.loc[
+            positions_df.optype == trading.TradingOperationType.LONG
+        ].shape[0],
+        positions_df.loc[
+            positions_df.optype == trading.TradingOperationType.SHORT
+        ].shape[0],
+        100
+        * positions_df.loc[
+            positions_df.close_cause == str(trading.CloseCause.STOP_LOSS)
+        ].shape[0]
+        / positions_df.shape[0],
+        100
+        * positions_df.loc[
+            positions_df.close_cause == str(trading.CloseCause.INVERSE)
+        ].shape[0]
+        / positions_df.shape[0],
+        100
+        * positions_df.loc[
+            positions_df.close_cause == str(trading.CloseCause.MAX_LENGTH)
+        ].shape[0]
+        / positions_df.shape[0],
+        positions_df.length_in_days.mean(),
+        positions_df.length_in_days.std(),
+        positions_df["return"].mean(),
+        positions_df["return"].std(),
+        positions_df.profit_perc.mean(),
+        positions_df.profit_perc.std(),
+        positions_df.cap_invested.mean(),
+        positions_df.cap_invested.std(),
+        positions_df.fees.mean(),
+        positions_df.fees.std(),
+        positions_df.groupby("stock").open_day.count().mean(),
+        positions_df.groupby("stock").open_day.count().std(),
+    )
+    #  save operations history
+    positions_df.to_csv(
+        join(output_dir, f"{classifier}_{OP_FILE}"),
+        index=False,
+        float_format="%.3f",
+    )
+
+    return positions, results_df, ts
+
+
+def read_signals(args, classifier):
+    sig_file = join(
+        args.input_dir,
+        f"out_{args.year}_{classifier}",
+        "preds",
+        "test_preds_GS.csv",
+    )
+
+    if not exists(sig_file):
+        logger.info(f"Can't find file with trading signals for {classifier}")
+        return
+    else:
+        signals_df = pd.read_csv(
+            sig_file,
+            parse_dates=["Date"],
+            header=0,
+            infer_datetime_format=True,
+            index_col="Date",
+        )
+
+    assert not signals_df.isna().any().any()
+
+    return signals_df
+
+
+def get_classifiers():
+    determ = ["L3", "L3-LVL1", "GNB", "SVC", "KNN", "LG", "RFC"]
+    seeded = [f"MLP_{i}" for i in range(10)] + [f"LSTM_{i}" for i in range(10)]
+    return determ + seeded
+
+
 def main():
     parser = ArgumentParser()
-    parser.add_argument("input_dir")
+    parser.add_argument("--input_dir", type=str, required=True)
+    parser.add_argument("--year", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default=".")
-    parser.add_argument("year", type=str)
 
     parser.add_argument("--stop_loss_tr", type=float, default=0.01)
     parser.add_argument(
@@ -82,172 +244,66 @@ def main():
     # list of named tuples
     stocks = load_stock_entities("data/raw")
 
-    TradingStats = namedtuple(
-        "TradingStats",
-        [
-            "Year",
-            "Classifier",
-            "EquityFinal",
-            "EquityMax",
-            "EquityMin",
-            "EquityMean",
-            "EquityStd",
-            "OpCount",
-            "OpLONGCount",
-            "OpSHORTCount",
-            "OpClosedSTOPLOSS_perc",
-            "OpClosedINVERSE_perc",
-            "OpClosedMAXLENGTH_perc",
-            "OpLengthMean_days",
-            "OpLengthStd_days",
-            "OpReturnMean",
-            "OpReturnStd",
-            "OpProfitMean_perc",
-            "OpProfitStd_perc",
-            "OpCapInvestedMean",
-            "OpCapInvestedStd",
-            "OpFeesMean",
-            "OpFeesStd",
-            "OpPerStockMean",
-            "OpPerStockStd",
-        ],
-    )
-
-    #  Setup output files and folders
-    CLASSIFIER_COMPARISON_FILE = "classifiers_comparison.csv"
-    CLASSIFIER_SUMMARY_FILE = "classifiers_summary.csv"
-    YEARLY_MEAN_FILE = "yearly_mean.csv"
-    EQUITY_FIG_FILE = "equity.pdf"
-    OP_FILE = "operations.csv"
-    OP_TREND_FILE = "operations_trend.pdf"
-    OP_VS_EQUITY_FILE = "operations_vs_equity.pdf"
     if not exists(output_dir):
         mkdir(output_dir)
 
     summary_stats = list()
-    trading_stats = list()
     equity_fig, equity_ax = plt.subplots(figsize=(14, 8))
 
-    for classifier in tqdm(
-        ["L3", "L3-LVL1", "GNB", "SVC", "KNN", "LG", "RFC", "MLP"], desc="Clf"
-    ):
-        sig_file = join(
-            args.input_dir,
-            f"out_{args.year}_{classifier}",
-            "preds",
-            "test_preds_GS.csv",
-        )
-        if not exists(sig_file):
-            print("Can't find file with trading signals for", classifier)
+    seeded_results = list()
+    for classifier in tqdm(get_classifiers(), desc="Clf"):
+
+        signals_df = read_signals(args, classifier)
+        if signals_df is None:
             continue
-        else:
-            signals_df = pd.read_csv(
-                sig_file,
-                parse_dates=["Date"],
-                header=0,
-                infer_datetime_format=True,
-                index_col="Date",
-            )
 
-        assert not signals_df.isna().any().any()
-        simulation = trading.TradingSimulation(
-            initial_capital=args.initial_capital,
-            stop_loss_tr=args.stop_loss_tr,
-            investment=args.investment,
-            stocks=stocks,
-            fixed_fee=args.fixed_fee,
-            percentage_fee=args.percentage_fee,
-            max_opened=args.max_opened,
-            max_opened_per_day=args.max_opened_per_day,
-            max_duration=args.max_duration,
+        pos, results_df, ts = trade_with_signals(
+            args, classifier, stocks, signals_df, output_dir
         )
-        logging.debug(
-            f"Trading simulation setup, "
-            f"Initial capital {args.initial_capital}, "
-            f"stop loss tr {args.stop_loss_tr}, "
-            f"investment per day {args.investment}, "
-            f"num stocks {len(stocks)}, "
-            f"fixed fee {args.fixed_fee}, "
-            f"percentage_fee {args.percentage_fee}, "
-            f"max opened {args.max_opened}, "
-            f"max opened per day {args.max_opened_per_day}, "
-            f"max_duration {args.max_duration}."
-        )
-        positions, results_df = simulation.trade(signals_df)
-        positions_df = pd.DataFrame([p.to_dict() for p in positions])
-        assert len(positions) > 0, "At least on position should have been opened"
-
-        # create row for classifiers comparison
-        ts = TradingStats(
-            args.year,
-            classifier,
-            results_df.equity_by_day.iloc[-1],
-            results_df.equity_by_day.max(),
-            results_df.equity_by_day.min(),
-            results_df.equity_by_day.mean(),
-            results_df.equity_by_day.std(),
-            positions_df.shape[0],
-            positions_df.loc[
-                positions_df.optype == trading.TradingOperationType.LONG
-            ].shape[0],
-            positions_df.loc[
-                positions_df.optype == trading.TradingOperationType.SHORT
-            ].shape[0],
-            100
-            * positions_df.loc[
-                positions_df.close_cause == str(trading.CloseCause.STOP_LOSS)
-            ].shape[0]
-            / positions_df.shape[0],
-            100
-            * positions_df.loc[
-                positions_df.close_cause == str(trading.CloseCause.INVERSE)
-            ].shape[0]
-            / positions_df.shape[0],
-            100
-            * positions_df.loc[
-                positions_df.close_cause == str(trading.CloseCause.MAX_LENGTH)
-            ].shape[0]
-            / positions_df.shape[0],
-            positions_df.length_in_days.mean(),
-            positions_df.length_in_days.std(),
-            positions_df["return"].mean(),
-            positions_df["return"].std(),
-            positions_df.profit_perc.mean(),
-            positions_df.profit_perc.std(),
-            positions_df.cap_invested.mean(),
-            positions_df.cap_invested.std(),
-            positions_df.fees.mean(),
-            positions_df.fees.std(),
-            positions_df.groupby("stock").open_day.count().mean(),
-            positions_df.groupby("stock").open_day.count().std(),
-        )
-        trading_stats.append(ts)
         summary_stats.append(ts)
 
-        #  save operations history
-        positions_df.to_csv(
-            join(output_dir, f"{classifier}_{OP_FILE}"),
-            index=False,
-            float_format="%.3f",
-        )
-
+        base_classifier = classifier.split("_")[0]
         # equity vs other classifiers
-        label = EQUITY_LINES[classifier].get("label", classifier)
-        color = EQUITY_LINES[classifier].get("color", DEFAULT_COLOR)
-        marker = EQUITY_LINES[classifier].get("marker", DEFAULT_MARKER)
-        marker_size = EQUITY_LINES[classifier].get("marker_size", DEFAULT_MARKER_SIZE)
-        lw = EQUITY_LINES[classifier].get("lw", DEFAULT_LINE_WIDTH)
-
-        sns.lineplot(
-            x=results_df.index,
-            y=results_df.equity_by_day,
-            ax=equity_ax,
-            label=label,
-            markersize=marker_size,
-            marker=marker,
-            color=color,
-            lw=lw,
+        label = EQUITY_LINES[base_classifier].get("label", classifier)
+        color = EQUITY_LINES[base_classifier].get("color", DEFAULT_COLOR)
+        marker = EQUITY_LINES[base_classifier].get("marker", DEFAULT_MARKER)
+        marker_size = EQUITY_LINES[base_classifier].get(
+            "marker_size", DEFAULT_MARKER_SIZE
         )
+        lw = EQUITY_LINES[base_classifier].get("lw", DEFAULT_LINE_WIDTH)
+
+        # Display differently models with seeds
+        if classifier.startswith("MLP") or classifier.startswith("LSTM"):
+
+            seeded_results.append(results_df)
+
+            if len(seeded_results) == 10:
+                #  I have collected 10 results, one per seed
+                logger.info("Collecting results from different seeds")
+                results_df = pd.concat(seeded_results, axis=0)
+                sns.lineplot(
+                    x=results_df.index,
+                    y=results_df.equity_by_day,
+                    ax=equity_ax,
+                    label=label,
+                    markersize=marker_size,
+                    marker=marker,
+                    color=color,
+                    lw=lw,
+                )
+                seeded_results = list()
+
+        else:
+            sns.lineplot(
+                x=results_df.index,
+                y=results_df.equity_by_day,
+                ax=equity_ax,
+                label=label,
+                markersize=marker_size,
+                marker=marker,
+                color=color,
+                lw=lw,
+            )
 
         # operations opened vs equity
         fig, ax = plt.subplots(figsize=(12, 8))
@@ -321,20 +377,11 @@ def main():
 
     plt.close(equity_fig)
 
-    # if args.log_comet:
-    #     experiment.log_image(join(output_dir, EQUITY_FIG_FILE))
-
-    trading_stats_df = pd.DataFrame(trading_stats)
-    trading_stats_df.to_csv(
-        join(output_dir, CLASSIFIER_COMPARISON_FILE),
-        index=False,
-        float_format="%.3f",
-    )
-
-    if args.log_comet:
-        experiment.log_table(CLASSIFIER_COMPARISON_FILE, trading_stats_df)
-
+    breakpoint()
     summary_df = pd.DataFrame(summary_stats)
+    if args.log_comet:
+        experiment.log_table(CLASSIFIER_COMPARISON_FILE, summary_df)
+
     clfs_df = summary_df.groupby("Classifier")
     clfs_equity_mean = clfs_df["EquityFinal"].mean()
     clfs_equity_std = clfs_df["EquityFinal"].std()
