@@ -155,7 +155,7 @@ def train(
             scoring="f1_macro",
             n_jobs=-1,
             cv=TimeSeriesSplit(n_splits=3),
-            verbose=1,
+            verbose=10,
         )
 
         if classifier == "L3":
@@ -410,9 +410,7 @@ def main(
             X_train = pd.concat(Xtr, axis=0)
             y_train = pd.concat(ytr, axis=0)
 
-            logger.info(
-                f"Dimensions of this sector: X_train: {X_train.shape}, X_test: {X_test.shape}"
-            )
+            logger.info(f"Dimensions of this sector: X_train: {X_train.shape}")
 
             if classifier != "LSTM":
 
