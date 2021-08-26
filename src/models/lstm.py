@@ -212,11 +212,9 @@ class SequenceDataset(Dataset):
         return self.sequences[idx]
 
 
-def train_and_test_lstm(
+def train(
     X_train: np.array,
     y_train: np.array,
-    X_test: np.array,
-    y_test: np.array,
     num_classes,
     seq_length,
     batch_size,
@@ -246,9 +244,7 @@ def train_and_test_lstm(
     # class_weights[2] *= 2
 
     X_train = X_train.to_numpy()
-    X_test = X_test.to_numpy()
     y_train = y_train.to_numpy()
-    y_test = y_test.to_numpy()
 
     print("Class weights computed:", class_weights)
 
@@ -312,6 +308,15 @@ def train_and_test_lstm(
     # Train the model ⚡
     trainer.fit(model, train_dataloader, val_dataloader)
 
+    return model_checkpoint.best_model_path
+
+
+def test(model_path, X_train, X_test, y_train, y_test, seq_length, batch_size):
+    X_train = X_train.to_numpy()
+    X_test = X_test.to_numpy()
+    y_train = y_train.to_numpy()
+    y_test = y_test.to_numpy()
+
     # Create the test sequences. TODO Is this correct?
     test_sequences = create_examples(
         np.concatenate((X_train[-seq_length:, :], X_test), axis=0),
@@ -324,9 +329,7 @@ def train_and_test_lstm(
     )
 
     # Load the model and predict the test set
-    best_model = LSTMClassifier.load_from_checkpoint(
-        model_checkpoint.best_model_path
-    ).eval()
+    best_model = LSTMClassifier.load_from_checkpoint(model_path).eval()
 
     with torch.no_grad():
         y_preds = list()
@@ -337,8 +340,5 @@ def train_and_test_lstm(
             y_preds.append(out.argmax(-1))  # batch x 1
 
         y_preds = torch.cat(y_preds).squeeze(-1).numpy()
-
-    # if num_classes == 3:
-    #     y_preds = torchlabels_to_labels(y_preds)
 
     return y_preds

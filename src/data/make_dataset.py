@@ -10,16 +10,17 @@ import pandas as pd
 import ta
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
+from typing import Dict
 
 
-def load_OHLCV_files(in_dir):
+def load_OHLCV_files(in_dir) -> Dict:
     files = glob.glob(join(in_dir, "*.csv"))
 
-    ticks_stocks = list()
+    ticks_stocks = dict()
     for f in files:
         tick = splitext(basename(f))[0]
-        ticks_stocks.append(
-            (tick, pd.read_csv(f, index_col="Date", header=0, parse_dates=["Date"]))
+        ticks_stocks[tick] = pd.read_csv(
+            f, index_col="Date", header=0, parse_dates=["Date"]
         )
     return ticks_stocks
 

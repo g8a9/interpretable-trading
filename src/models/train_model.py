@@ -11,7 +11,7 @@ from sklearn import svm
 from sklearn.metrics import f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import TimeSeriesSplit, GridSearchCV, train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.svm import SVC
 from tqdm import tqdm
 import logging
@@ -24,7 +24,7 @@ from src.models import (
     create_dir,
     instantiate_classifier,
 )
-from src.data import load_OHLCV_files, create_target
+from src.data import get_sectors, load_OHLCV_files, create_target, load_stock_entities
 from src.data.preparation import TRAIN_SIZE, drop_initial_nans
 from src.models import lstm
 
@@ -58,30 +58,16 @@ def oversample(X_train, y_train, method):
         return SMOTE().fit_resample(X_train, y_train)
 
 
-def process_stock(
-    tick: str,
-    stock_df: pd.DataFrame,
-    classifier: str,
-    output_dir: str,
-    training_type: str,
-    year: str,
-    horizon: int,
-    h_threshold: float,
-    l_threshold: float,
-    do_grid_search: bool,
-    normalize: bool,
-    oversampling: bool,
-    seed: int,
-    experiment,
-    **kwargs,
+def get_stock_splits(
+    stock_df,
+    year,
+    classifier,
+    horizon,
+    l_threshold,
+    h_threshold,
+    training_type,
+    oversampling,
 ):
-    """Process a single stock."""
-    config = (tick, year, horizon, training_type)
-
-    # scores_file = get_scores_filename(tick)
-    # scores_path = join(output_dir, scores_file)
-    # if exists(scores_path):
-    #     logger.info(f"Scores for config {config}  already exists: skipping it.")
 
     # Create discrete targets
     targets = create_target(stock_df, horizon, l_threshold, h_threshold)
@@ -99,8 +85,14 @@ def process_stock(
     if training_type == "cumulative":
         past_years = stock_df.loc[: str(int(year) - 1), :]
         past_targets = targets.loc[: str(int(year) - 1)]
+
         X_train = pd.concat([past_years, X_train], axis=0)
         y_train = pd.concat([past_targets, y_train], axis=0)
+        #  use the specified year as test
+        # X_train = past_years
+        # y_train = past_targets
+        # X_test = stock_df.loc[year, :]
+        # y_test = targets.loc[year]
 
     #  Drop initial days with nans due to the technical indicators
     X_train, first_valid_idx = drop_initial_nans(X_train)
@@ -113,80 +105,37 @@ def process_stock(
     # if a stock is trained on a single target label, e.g. all days are HOLD,
     # just skip it, nothing can be learned
     if y_train.unique().size <= 1:
-        logger.info(f"Skipping {config} due to a single class in the training set")
-        return
+        raise RuntimeError()
 
     #  Oversampling for all but L3
     if oversampling and classifier != "L3":
-        X_train_, y_train_ = oversample(X_train, y_train, method=oversampling)
+        logger.info(f"Oversampling requested with {oversampling}")
+        X_train, y_train = oversample(X_train, y_train, method=oversampling)
 
-    if classifier == "LSTM":
+    return X_train, X_test, y_train, y_test
 
-        #  disable model and experiment logging when training on single stocks
-        if not kwargs.get("aggregation_type", None):
-            save_model = False
-            comet_experiment = None
-            logger.info(
-                "No aggregation of stocks: disabling model and experiment logging."
-            )
-        else:
-            save_model = True
-            comet_experiment = experiment
 
-        y_pred = lstm.train_and_test_lstm(
-            X_train,
-            y_train,
-            X_test,
-            y_test,
-            3,
-            kwargs["seq_length"],
-            kwargs["batch_size"],
-            kwargs["max_epochs"],
-            kwargs["lr"],
-            kwargs["reduce_lr"],
-            kwargs["gpus"],
-            seed,
-            kwargs["early_stop"],
-            kwargs["stateful"],
-            comet_experiment=comet_experiment,
-            model_dir=join(output_dir, "models"),
-            tick=tick,
-            save_model=save_model,
-        )
+def test(model, X_test, y_test):
+    return model.predict(X_test)
 
-        test_performance = score_classifier(y_test, y_pred)
-        return y_test, test_performance, y_pred
+
+def train(
+    X_train,
+    y_train,
+    tick: str,
+    classifier: str,
+    output_dir: str,
+    do_grid_search: bool,
+    normalize: bool,
+    **classifier_kwargs,
+):
 
     if do_grid_search:
         logger.info(f"Grid search for {classifier} requested.")
-        # X_train_, X_val_, y_train_, y_val_ = train_test_split(
-        #     X_train, y_train, train_size=0.8, shuffle=False
-        # )
 
-        # study = optuna.create_study(
-        #     study_name=f"study_{tick}_{year}", direction="maximize"
-        # )
-        # study.optimize(
-        #     lambda t: evaluate_classifier(
-        #         t, classifier, X_train_, X_val_, y_train_, y_val_
-        #     ),
-        #     n_trials=20,
-        #     timeout=120,
-        #     n_jobs=-1,
-        # )
-        # print(study.best_params)
-
-        # evaluate_classifier(classifier, X_train_, X_val_, y_train_, y_val_)
-
-        if classifier == "L3":
-            # TODO rule_set_modifier can become an hparam
-            clf, params, grid = instantiate_classifier(
-                classifier,
-                return_grid=True,
-                rule_sets_modifier=kwargs["rule_sets_modifier"],
-            )
-        else:
-            clf, params, grid = instantiate_classifier(classifier, return_grid=True)
+        clf, params, grid = instantiate_classifier(
+            classifier, return_grid=True, **classifier_kwargs
+        )
 
         # update param grid keys to match the use of pipeline
         if isinstance(grid, list):
@@ -209,12 +158,7 @@ def process_stock(
             verbose=1,
         )
 
-        if classifier == "MLP":
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                gs.fit(X_train, y_train)
-
-        elif classifier == "L3":
+        if classifier == "L3":
             gs.fit(
                 X_train,
                 y_train,
@@ -223,9 +167,6 @@ def process_stock(
             )
         else:
             gs.fit(X_train, y_train)
-
-        test_pred = gs.predict(X_test)
-        test_performance = score_classifier(y_test, test_pred)
 
         # save the best estimator
         dump(
@@ -239,24 +180,11 @@ def process_stock(
                 join(output_dir, "rules", tick)
             )
 
-        return y_test, test_performance, test_pred, gs.best_params_
+        return gs
 
     else:
+        # TODO implement this if we ever need it
         raise RuntimeError("We don't want to do that now.")
-
-        # instantiate a model and validate it
-        clf, _ = instantiate_classifier(classifier)
-
-        if normalize:
-            pipeline = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
-        else:
-            pipeline = Pipeline([("clf", clf)])
-
-        pipeline.fit(X_train, y_train)
-        test_pred = pipeline.predict(X_test)
-        test_performance = score_classifier(y_test, test_pred)
-
-        return y_test, test_performance, test_pred
 
 
 @click.command()
@@ -270,7 +198,7 @@ def process_stock(
 @click.option("--log_comet", is_flag=True)
 @click.option("--do_grid_search", is_flag=True)
 @click.option("--normalize", is_flag=True)
-@click.option("--oversample", type=click.STRING, default=None)
+@click.option("--oversampling", type=click.STRING, default=None)
 @click.option("--h_threshold", type=click.FLOAT, default=1)
 @click.option("--l_threshold", type=click.FLOAT, default=-1)
 @click.option("--seed", type=click.INT, default=42)
@@ -286,6 +214,7 @@ def process_stock(
 @click.option("--stateful", is_flag=True)
 @click.option("--reduce_lr", type=click.INT, default=0)
 @click.option("--rule_sets_modifier", type=click.STRING, default="standard")
+@click.option("--use_sectors", is_flag=True)
 def main(
     output_dir,
     classifier,
@@ -295,7 +224,7 @@ def main(
     log_comet,
     do_grid_search,
     normalize,
-    oversample,
+    oversampling,
     h_threshold,
     l_threshold,
     seed,
@@ -311,6 +240,7 @@ def main(
     stateful,
     reduce_lr,
     rule_sets_modifier,
+    use_sectors,
 ):
 
     hparams = locals()
@@ -326,86 +256,241 @@ def main(
         if classifier != "L3"
         else join("data", "processed", "SP500_technical_discretized", "DENSE")
     )
-    stocks = load_OHLCV_files(in_dir)
-    logger.info(f"Loaded {len(stocks)} stocks")
+    stock_by_tick = load_OHLCV_files(in_dir)
+    logger.info(f"Loaded {len(stock_by_tick)} stocks")
 
-    stocks = sorted(stocks, key=lambda s: s[0])
+    #  sort ticks alphabetically
+    ticks = sorted(list(stock_by_tick.keys()))
 
     if test_run:
-        stocks = random.sample(stocks, k=3)
-
-    ticks, _ = zip(*stocks)
+        stock_by_tick = {
+            "AAPL": stock_by_tick["AAPL"],
+            "MSFT": stock_by_tick["MSFT"],
+            "AMZN": stock_by_tick["AMZN"],
+        }
 
     experiment = None
     if log_comet:
         exp = create_experiment()
         exp.add_tag("training")
         exp.log_parameters(hparams)
-        exp.log_other("n_stocks", len(stocks))
+        exp.log_other("n_stocks", len(stock_by_tick))
 
-    if parallel:
-        results = Parallel(n_jobs=n_workers)(
-            delayed(process_stock)(
-                tick,
+    classifier_args = dict()
+    if classifier == "L3":
+        classifier_args["rule_sets_modifier"] = rule_sets_modifier
+    if classifier == "MLP" or classifier == "LSTM":
+        classifier_args["seed"] = seed
+
+    if not use_sectors:
+        """Run trading separately per stock."""
+
+        results = list()
+
+        for tick in tqdm(ticks, desc="Stocks"):
+            stock_df = stock_by_tick[tick]
+
+            X_train, X_test, y_train, y_test = get_stock_splits(
                 stock_df,
-                classifier,
-                output_dir,
-                training_type,
                 year,
+                classifier,
                 horizon,
-                h_threshold,
                 l_threshold,
-                do_grid_search,
-                normalize,
-                oversample,
-                seed,
-                experiment,
-                seq_length=seq_length,  # LSTM args
-                batch_size=batch_size,
-                max_epochs=max_epochs,
-                lr=lr,
-                reduce_lr=reduce_lr,
-                early_stop=early_stop,
-                gpus=gpus,
-                stateful=stateful,
-                rule_sets_modifier=rule_sets_modifier,  #  L3 args
+                h_threshold,
+                training_type,
+                oversampling,
             )
-            for tick, stock_df in tqdm(stocks, desc="Stocks")
-        )
+
+            if classifier != "LSTM":
+
+                model = train(
+                    X_train,
+                    y_train,
+                    tick,
+                    classifier,
+                    output_dir,
+                    do_grid_search,
+                    normalize,
+                    seed,
+                    experiment,
+                    rule_sets_modifier=rule_sets_modifier,  #  L3 args
+                )
+
+                y_pred = model.predict(X_test)
+                best_params = model.best_params_
+
+            else:
+
+                #  LSTM
+                logger.info("Disabling model and experiment logging with LSTM.")
+                save_model = False
+                comet_experiment = None
+
+                best_model_path = lstm.train(
+                    X_train,
+                    y_train,
+                    3,
+                    seq_length,
+                    batch_size,
+                    max_epochs,
+                    lr,
+                    reduce_lr,
+                    gpus,
+                    seed,
+                    early_stop,
+                    stateful,
+                    comet_experiment=comet_experiment,
+                    model_dir=join(output_dir, "models"),
+                    tick=tick,
+                    save_model=save_model,
+                )
+
+                y_pred = lstm.test(
+                    best_model_path,
+                    X_train,
+                    X_test,
+                    y_train,
+                    y_test,
+                    seq_length,
+                    batch_size,
+                )
+                best_params = None
+
+            test_perf = score_classifier(y_test, y_pred)
+            results.append((y_test, test_perf, y_pred, best_params))
+
     else:
-        results = [
-            process_stock(
-                tick,
-                stock_df,
-                classifier,
-                output_dir,
-                training_type,
-                year,
-                horizon,
-                h_threshold,
-                l_threshold,
-                do_grid_search,
-                normalize,
-                oversample,
-                seed,
-                experiment,
-                seq_length=seq_length,  #  LSTM args
-                batch_size=batch_size,
-                max_epochs=max_epochs,
-                lr=lr,
-                reduce_lr=reduce_lr,
-                early_stop=early_stop,
-                gpus=gpus,
-                stateful=stateful,
-                rule_sets_modifier=rule_sets_modifier,  #  L3 args
-            )
-            for tick, stock_df in tqdm(stocks, desc="Stocks")
+        """Group stocks into sectors. We keep only the most populated ones."""
+
+        if log_comet:
+            exp.add_tag("sectors")
+
+        USED_SECTORS = [
+            "Industrials",
+            "Financials",
+            "Consumer Discretionary",
+            "Information Technology",
+            "Health Care",
+            "Real Estate",
         ]
+
+        logger.info(f"Training on {len(USED_SECTORS)} sectors")
+        logger.info(f"Sectors: {USED_SECTORS}")
+
+        stocks = load_stock_entities(join("data", "raw"))
+        sectors = get_sectors(stocks)
+
+        results = list()
+        process_ticks = list()
+
+        for sec in tqdm(USED_SECTORS, desc="Sectors"):
+
+            curr_ticks = sectors.loc[sectors == sec].index.values
+            process_ticks.extend(curr_ticks)
+
+            Xtr, Xte, ytr, yte = list(), list(), list(), list()
+            for tick in curr_ticks:
+                stock_df = stock_by_tick[tick]
+                X_train, X_test, y_train, y_test = get_stock_splits(
+                    stock_df,
+                    year,
+                    classifier,
+                    horizon,
+                    l_threshold,
+                    h_threshold,
+                    training_type,
+                    oversampling,
+                )
+
+                Xtr.append(X_train)
+                Xte.append(X_test)
+                ytr.append(y_train)
+                yte.append(y_test)
+
+            X_train = pd.concat(Xtr, axis=0)
+            y_train = pd.concat(ytr, axis=0)
+
+            logger.info(
+                f"Dimensions of this sector: X_train: {X_train.shape}, X_test: {X_test.shape}"
+            )
+
+            if classifier != "LSTM":
+
+                model = train(
+                    X_train=X_train,
+                    y_train=y_train,
+                    tick=sec,
+                    classifier=classifier,
+                    output_dir=output_dir,
+                    do_grid_search=do_grid_search,
+                    normalize=normalize,
+                    **classifier_args,
+                )
+
+                #  Predict one stock at a time within the current sector
+                for tick, X_test, y_test in tqdm(
+                    zip(curr_ticks, Xte, yte),
+                    desc="Stocks",
+                    leave=False,
+                    total=len(curr_ticks),
+                ):
+                    y_pred = model.predict(X_test)
+                    test_perf = score_classifier(y_test, y_pred)
+                    results.append((y_test, test_perf, y_pred, model.best_params_))
+
+            else:
+
+                #  LSTM
+                logger.info("Disabling model and experiment logging with LSTM.")
+                save_model = False
+                comet_experiment = None
+
+                best_model_path = lstm.train(
+                    X_train=X_train,
+                    y_train=y_train,
+                    num_classes=3,
+                    seq_length=seq_length,
+                    batch_size=batch_size,
+                    max_epochs=max_epochs,
+                    lr=lr,
+                    reduce_lr=reduce_lr,
+                    gpus=gpus,
+                    seed=seed,
+                    early_stop=early_stop,
+                    stateful=stateful,
+                    comet_experiment=comet_experiment,
+                    model_dir=join(output_dir, "models"),
+                    tick=sec,
+                    save_model=save_model,
+                )
+
+                #  Predict one stock at a time within the current sector
+                for tick, X_test, y_test in tqdm(
+                    zip(curr_ticks, Xte, yte),
+                    desc="Stocks",
+                    leave=False,
+                    total=len(curr_ticks),
+                ):
+                    y_pred = lstm.test(
+                        best_model_path,
+                        X_train,
+                        X_test,
+                        y_train,
+                        y_test,
+                        seq_length,
+                        batch_size,
+                    )
+                    test_perf = score_classifier(y_test, y_pred)
+                    results.append((y_test, test_perf, y_pred, None))
+
+        logger.info(f"Processed {len(results)} stocks")
+        ticks = process_ticks
 
     # Save all the results
     create_dir(join(output_dir, "preds"))
 
     y_tests = [r[0] for r in results]
+
     y_tests = pd.concat(y_tests, axis=1, keys=ticks)
     y_tests.to_csv(join(output_dir, "preds", "test_gold.csv"), index_label="Date")
 
@@ -433,8 +518,6 @@ def main(
 
     if log_comet:
         exp.log_metrics(test_perf.mean().to_dict())
-
-    return
 
 
 if __name__ == "__main__":

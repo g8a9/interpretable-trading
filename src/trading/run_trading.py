@@ -257,20 +257,26 @@ def main():
         if signals_df is None:
             continue
 
+        #  TRADING
+
         pos, results_df, ts = trade_with_signals(
             args, classifier, stocks, signals_df, output_dir
         )
         summary_stats.append(ts)
 
+        #  VISUALIZATION
+
         base_classifier = classifier.split("_")[0]
         # equity vs other classifiers
-        label = EQUITY_LINES[base_classifier].get("label", classifier)
+        label = EQUITY_LINES[base_classifier].get("label", base_classifier)
         color = EQUITY_LINES[base_classifier].get("color", DEFAULT_COLOR)
         marker = EQUITY_LINES[base_classifier].get("marker", DEFAULT_MARKER)
         marker_size = EQUITY_LINES[base_classifier].get(
             "marker_size", DEFAULT_MARKER_SIZE
         )
         lw = EQUITY_LINES[base_classifier].get("lw", DEFAULT_LINE_WIDTH)
+
+        # - Plot: equity line
 
         # Display differently models with seeds
         if classifier.startswith("MLP") or classifier.startswith("LSTM"):
@@ -305,7 +311,8 @@ def main():
                 lw=lw,
             )
 
-        # operations opened vs equity
+        # - Plot: operations opened vs equity
+
         fig, ax = plt.subplots(figsize=(12, 8))
         ax.plot(results_df.index, results_df.equity_by_day, label="equity")
         ax.set_ylabel("equity")
@@ -331,7 +338,8 @@ def main():
         # if args.log_comet:
         #     experiment.log_image(join(output_dir, f"{classifier}_{OP_VS_EQUITY_FILE}"))
 
-        # operations trend
+        # - Plot: operations trend
+
         clf_fig, clf_ax = plt.subplots(figsize=(12, 8))
         clf_ax.plot(results_df.index, results_df.total_opened, label="position opened")
         # clf_ax2 = clf_ax.twinx()
@@ -377,7 +385,6 @@ def main():
 
     plt.close(equity_fig)
 
-    breakpoint()
     summary_df = pd.DataFrame(summary_stats)
     if args.log_comet:
         experiment.log_table(CLASSIFIER_COMPARISON_FILE, summary_df)
