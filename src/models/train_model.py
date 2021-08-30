@@ -355,6 +355,7 @@ def main(
                     batch_size,
                 )
                 best_params = None
+                os.remove(best_model_path)
 
             test_perf = score_classifier(y_test, y_pred)
             results.append((y_test, test_perf, y_pred, best_params))
@@ -480,6 +481,8 @@ def main(
                     )
                     test_perf = score_classifier(y_test, y_pred)
                     results.append((y_test, test_perf, y_pred, None))
+
+                os.remove(best_model_path)
 
         logger.info(f"Processed {len(results)} stocks")
         ticks = process_ticks

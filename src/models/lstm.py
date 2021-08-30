@@ -276,15 +276,12 @@ def train(
         bidirectional=False,
     )
 
-    if kwargs["save_model"]:
-        model_checkpoint = pl.callbacks.ModelCheckpoint(
-            monitor="val_loss",
-            dirpath=kwargs["model_dir"],
-            filename=f"{kwargs['tick']}-" + "-{epoch}-{val_loss:.3f}-{train_loss:.3f}",
-        )
-        callbacks = [model_checkpoint]
-    else:
-        callbacks = list()
+    model_checkpoint = pl.callbacks.ModelCheckpoint(
+        monitor="val_loss",
+        dirpath=kwargs["model_dir"],
+        filename=f"{kwargs['tick']}-" + "-{epoch}-{val_loss:.3f}-{train_loss:.3f}",
+    )
+    callbacks = [model_checkpoint]
 
     if early_stop > 0:
         callbacks.append(pl.callbacks.EarlyStopping("val_loss", patience=early_stop))
