@@ -176,8 +176,17 @@ def read_signals(args, classifier):
     )
 
     if not exists(sig_file):
+        sig_file = join(
+            args.input_dir,
+            f"out_{args.year}_{classifier}",
+            "preds",
+            "test_preds.csv",
+        )
+
+    if not exists(sig_file):
         logger.info(f"Can't find file with trading signals for {classifier}")
         return
+
     else:
         signals_df = pd.read_csv(
             sig_file,
@@ -196,6 +205,7 @@ def get_classifiers():
     determ = ["L3", "L3-LVL1", "GNB", "SVC", "KNN", "LG", "RFC"]
     seeded = [f"MLP_{i}" for i in range(10)] + [f"LSTM_{i}" for i in range(10)]
     return determ + seeded
+    # return [f"LSTM_{i}" for i in range(10)]
 
 
 def main():
@@ -255,6 +265,7 @@ def main():
 
         signals_df = read_signals(args, classifier)
         if signals_df is None:
+            logger.info(f"Signals are empty, skipping {classifier}")
             continue
 
         #  TRADING
