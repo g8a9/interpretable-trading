@@ -23,6 +23,7 @@ import warnings
 from src.models import (
     create_dir,
     instantiate_classifier,
+    FUZZY_CLASSIFIERS
 )
 from src.data import get_sectors, load_OHLCV_files, create_target, load_stock_entities
 from src.data.preparation import TRAIN_SIZE, drop_initial_nans
@@ -144,16 +145,18 @@ def train(
             grid = {f"clf__{k}": v for k, v in grid.items()}
 
         #  Normalize for all classifiers but L3
-        if normalize and classifier != "L3":
-            pipeline = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
+        if normalize:
+            scaler = MinMaxScaler() if classifier in FUZZY_CLASSIFIERS else StandardScaler()
+            pipeline = Pipeline([("scaler", scaler), ("clf", clf)])
         else:
             pipeline = Pipeline([("clf", clf)])
 
+        n_jobs = 1 if classifier == "MLP" else -1
         gs = GridSearchCV(
             pipeline,
             param_grid=grid,
             scoring="f1_macro",
-            n_jobs=-1,
+            n_jobs=n_jobs,
             cv=TimeSeriesSplit(n_splits=3),
             verbose=10,
         )
@@ -279,7 +282,9 @@ def main(
     classifier_args = dict()
     if classifier == "L3":
         classifier_args["rule_sets_modifier"] = rule_sets_modifier
-    if classifier == "MLP" or classifier == "LSTM":
+    if classifier == "MLP":
+        classifier_args["random_state"] = seed
+    if classifier == "LSTM":
         classifier_args["seed"] = seed
 
     if not use_sectors:
@@ -313,7 +318,7 @@ def main(
                     normalize,
                     seed,
                     experiment,
-                    rule_sets_modifier=rule_sets_modifier,  #  L3 args
+                    **classifier_args
                 )
 
                 y_pred = model.predict(X_test)

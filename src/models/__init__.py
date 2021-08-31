@@ -8,6 +8,9 @@ from sklearn.svm import SVC
 from l3wrapper.l3wrapper import L3Classifier
 import pandas as pd
 import numpy as np
+from fylearn.frr import FuzzyReductionRuleClassifier
+from fylearn.fpt import FuzzyPatternTreeTopDownClassifier
+from fylearn.garules import EnsembleMultimodalEvolutionaryClassifier
 
 
 PARAMS_GRID = {
@@ -19,22 +22,22 @@ PARAMS_GRID = {
     },
     "MLP": [
         {
-            "hidden_layer_sizes": [(100,), (100, 30)],
+            "hidden_layer_sizes": [(100,)],
             "activation": ["relu", "tanh"],
             "solver": ["adam"],
-            "learning_rate_init": [2e-5, 1e-4, 1e-3, 1e-2],
+            "learning_rate_init": [2e-5, 1e-4],
             "max_iter": [1000],
             "alpha": [1e-3, 1e-2],
             "batch_size": [1024],
             "early_stopping": [True],
-            "n_iter_no_change": [100],
+            "n_iter_no_change": [10],
         },
         {
-            "hidden_layer_sizes": [(100,), (100, 30)],
+            "hidden_layer_sizes": [(100,)],
             "activation": ["relu", "tanh"],
-            "learning_rate_init": [2e-5, 1e-4, 1e-3, 1e-2],
+            "learning_rate_init": [2e-5, 1e-4],
             "solver": ["lbfgs"],
-            "max_iter": [15000],
+            "max_iter": [1000],
             "alpha": [1e-3, 1e-2],
             "batch_size": [1024],
         },
@@ -70,10 +73,13 @@ PARAMS_GRID = {
     "GNB": {},
     "L3": {
         "min_sup": [0.005, 0.01, 0.05, 0.1],
-        "min_conf": [0.5, 0.25, 0.75],
+        "min_conf": [0.5, 0.75],
         "max_matching": [1, 3],
-        "max_length": [0, 5],
+        # "max_length": [0, 5],
     },
+    "FRR": {}, # FuzzyReductionRuleClassifier
+    "FPTTD": {}, # FuzzyPatternTreeTopDownClassifier
+    "EMEC": {} # EnsembleMultimodalEvolutionaryClassifier
 }
 
 
@@ -101,8 +107,12 @@ PARAMS = {
         "max_matching": 1,
         "max_length": 0,
     },
+    "FRR": {}, # FuzzyReductionRuleClassifier
+    "FPTTD": {}, # FuzzyPatternTreeTopDownClassifier
+    "EMEC": {} # EnsembleMultimodalEvolutionaryClassifier
 }
 
+FUZZY_CLASSIFIERS = ["FRR", "FPTTD", "EMEC"]
 
 def instantiate_classifier(
     classifier, return_grid=False, load_default=False, **kw_classifier
@@ -141,10 +151,17 @@ def instantiate_classifier(
         clf = LogisticRegression(n_jobs=N_JOBS, **params)
     elif classifier == "GNB":
         clf = GaussianNB()
+    elif classifier == "FRR": # FuzzyReductionRuleClassifier
+        clf = FuzzyReductionRuleClassifier()
+    elif classifier == "FPTTD": # FuzzyPatternTreeTopDownClassifier
+        clf = FuzzyPatternTreeTopDownClassifier()
+    elif classifier == "EMEC": # EnsembleMultimodalEvolutionaryClassifier
+        clf = EnsembleMultimodalEvolutionaryClassifier()
     else:
         raise NotImplementedError()
 
     return (clf, params, PARAMS_GRID[classifier]) if return_grid else (clf, params)
+
 
 
 def get_scores_filename(tick):
