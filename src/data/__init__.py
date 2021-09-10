@@ -6,6 +6,16 @@ from .make_dataset import load_OHLCV_files
 from .preparation import create_target
 
 
+USED_SECTORS = [
+    "Industrials",
+    "Financials",
+    "Consumer Discretionary",
+    "Information Technology",
+    "Health Care",
+    "Real Estate",
+]
+
+
 Stock = namedtuple("Stock", ["name", "open", "close", "high", "low", "volume"])
 
 

@@ -20,12 +20,14 @@ import click
 import random
 import warnings
 
-from src.models import (
-    create_dir,
-    instantiate_classifier,
-    FUZZY_CLASSIFIERS
+from src.models import create_dir, instantiate_classifier, FUZZY_CLASSIFIERS
+from src.data import (
+    get_sectors,
+    load_OHLCV_files,
+    create_target,
+    load_stock_entities,
+    USED_SECTORS,
 )
-from src.data import get_sectors, load_OHLCV_files, create_target, load_stock_entities
 from src.data.preparation import TRAIN_SIZE, drop_initial_nans
 from src.models import lstm
 
@@ -146,7 +148,9 @@ def train(
 
         #  Normalize for all classifiers but L3
         if normalize:
-            scaler = MinMaxScaler() if classifier in FUZZY_CLASSIFIERS else StandardScaler()
+            scaler = (
+                MinMaxScaler() if classifier in FUZZY_CLASSIFIERS else StandardScaler()
+            )
             pipeline = Pipeline([("scaler", scaler), ("clf", clf)])
         else:
             pipeline = Pipeline([("clf", clf)])
@@ -318,7 +322,7 @@ def main(
                     normalize,
                     seed,
                     experiment,
-                    **classifier_args
+                    **classifier_args,
                 )
 
                 y_pred = model.predict(X_test)
@@ -370,15 +374,6 @@ def main(
 
         if log_comet:
             exp.add_tag("sectors")
-
-        USED_SECTORS = [
-            "Industrials",
-            "Financials",
-            "Consumer Discretionary",
-            "Information Technology",
-            "Health Care",
-            "Real Estate",
-        ]
 
         logger.info(f"Training on {len(USED_SECTORS)} sectors")
         logger.info(f"Sectors: {USED_SECTORS}")

@@ -21,4 +21,5 @@ torch
 pytorch-lightning
 comet-ml
 imbalanced-learn
+gdown
 seaborn
