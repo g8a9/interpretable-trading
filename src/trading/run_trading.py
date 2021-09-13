@@ -310,16 +310,33 @@ def main():
     equities = list()
     for classifier in tqdm(get_classifiers(args.family), desc="Clf"):
 
-        signals_df = read_signals(args, classifier)
-        if signals_df is None:
-            logger.info(f"Signals are empty, skipping {classifier}")
-            continue
+        if classifier in DEEPRL_SYSTEMS:
+            equity_file = join(args.input_dir, f"{classifier}_{args.year}_account_value.csv")
+            if not exists(equity_file):
+                logger.info(f"Signals are empty, skipping {classifier}")
+                continue
 
-        #  TRADING
-        pos, results_df, ts = trade_with_signals(
-            args, classifier, stocks, signals_df, output_dir
-        )
-        summary_stats.append(ts)
+            results_df = pd.read_csv(
+                equity_file,
+                parse_dates=["date"],
+                header=0,
+                infer_datetime_format=True,
+                index_col="date",
+                usecols=["date", "account_value"]
+            ).rename(columns={"account_value": "equity_by_day"})
+
+        else:
+            signals_df = read_signals(args, classifier)
+            if signals_df is None:
+                logger.info(f"Signals are empty, skipping {classifier}")
+                continue
+
+            #  TRADING
+            pos, results_df, ts = trade_with_signals(
+                args, classifier, stocks, signals_df, output_dir
+            )
+            summary_stats.append(ts)
+
         equities.append(results_df.equity_by_day)
 
         #  VISUALIZATION
@@ -376,6 +393,11 @@ def main():
                 color=color,
                 lw=lw,
             )
+
+
+        # don't generate other charts for DEEPR SYSTEMS 
+        if classifier in DEEPRL_SYSTEMS:
+            continue
 
         # - Plot: operations opened vs equity
 
