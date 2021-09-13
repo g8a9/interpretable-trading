@@ -24,6 +24,8 @@ from src.trading.style import (
     DEFAULT_LINE_WIDTH,
     DEFAULT_MARKER_SIZE,
 )
+from src.models import FUZZY_CLASSIFIERS, DEEPRL_SYSTEMS
+
 
 logging.basicConfig(
     format="%(asctime)s:%(name)s:%(levelname)s:%(message)s",
@@ -40,6 +42,7 @@ sns.set(style="whitegrid", context="paper", font_scale=2.3, rc={"lines.linewidth
 CLASSIFIER_COMPARISON_FILE = "classifiers_comparison.csv"
 CLASSIFIER_SUMMARY_FILE = "classifiers_summary.csv"
 YEARLY_MEAN_FILE = "yearly_mean.csv"
+EQUITY_FILE = "equity.csv"
 EQUITY_FIG_FILE = "equity.pdf"
 OP_FILE = "operations.csv"
 OP_TREND_FILE = "operations_trend.pdf"
@@ -201,11 +204,21 @@ def read_signals(args, classifier):
     return signals_df
 
 
-def get_classifiers():
-    determ = ["L3", "L3-LVL1", "GNB", "SVC", "KNN", "LG", "RFC"]
-    seeded = [f"MLP_{i}" for i in range(10)] + [f"LSTM_{i}" for i in range(10)]
-    return determ + seeded
-    # return [f"LSTM_{i}" for i in range(10)]
+def get_classifiers(family="ml"):
+
+    if family == "ml":
+        determ = ["L3", "L3-LVL1", "GNB", "SVC", "KNN", "LG", "RFC"]
+        seeded = [f"MLP_{i}" for i in range(10)] + [f"LSTM_{i}" for i in range(10)]
+        return determ + seeded
+
+    elif family == "fuzzy":
+        return ["L3", "L3-LVL1"] + FUZZY_CLASSIFIERS
+
+    elif family == "deeprl":
+        return ["L3", "L3-LVL1"] + DEEPRL_SYSTEMS
+
+    else:
+        raise ValueError()
 
 
 def main():
@@ -269,7 +282,6 @@ def main():
             continue
 
         #  TRADING
-
         pos, results_df, ts = trade_with_signals(
             args, classifier, stocks, signals_df, output_dir
         )

@@ -113,6 +113,8 @@ PARAMS = {
 }
 
 FUZZY_CLASSIFIERS = ["FRR", "FPTTD", "EMEC"]
+DEEPRL_SYSTEMS = ["SAC", "A2C", "DDPG"]
+
 
 def instantiate_classifier(
     classifier, return_grid=False, load_default=False, **kw_classifier
