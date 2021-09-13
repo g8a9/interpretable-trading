@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-from os import listdir, mkdir
+from os import listdir, makedirs
 from os.path import join, exists
 
 from seaborn.rcmod import reset_defaults
@@ -19,10 +19,7 @@ from src.trading import trading
 from src.data import load_stock_entities
 from src.trading.style import (
     EQUITY_LINES,
-    DEFAULT_COLOR,
-    DEFAULT_MARKER,
-    DEFAULT_LINE_WIDTH,
-    DEFAULT_MARKER_SIZE,
+    EQUITY_DEFAULT,
 )
 from src.models import FUZZY_CLASSIFIERS, DEEPRL_SYSTEMS
 
@@ -114,52 +111,84 @@ def trade_with_signals(args, classifier, stocks, signals_df, output_dir):
     )
     positions, results_df = simulation.trade(signals_df)
     positions_df = pd.DataFrame([p.to_dict() for p in positions])
-    assert len(positions) > 0, "At least on position should have been opened"
 
-    # create row for classifiers comparison
-    ts = TradingStats(
-        args.year,
-        classifier,
-        results_df.equity_by_day.iloc[-1],
-        results_df.equity_by_day.max(),
-        results_df.equity_by_day.min(),
-        results_df.equity_by_day.mean(),
-        results_df.equity_by_day.std(),
-        positions_df.shape[0],
-        positions_df.loc[
-            positions_df.optype == trading.TradingOperationType.LONG
-        ].shape[0],
-        positions_df.loc[
-            positions_df.optype == trading.TradingOperationType.SHORT
-        ].shape[0],
-        100
-        * positions_df.loc[
-            positions_df.close_cause == str(trading.CloseCause.STOP_LOSS)
-        ].shape[0]
-        / positions_df.shape[0],
-        100
-        * positions_df.loc[
-            positions_df.close_cause == str(trading.CloseCause.INVERSE)
-        ].shape[0]
-        / positions_df.shape[0],
-        100
-        * positions_df.loc[
-            positions_df.close_cause == str(trading.CloseCause.MAX_LENGTH)
-        ].shape[0]
-        / positions_df.shape[0],
-        positions_df.length_in_days.mean(),
-        positions_df.length_in_days.std(),
-        positions_df["return"].mean(),
-        positions_df["return"].std(),
-        positions_df.profit_perc.mean(),
-        positions_df.profit_perc.std(),
-        positions_df.cap_invested.mean(),
-        positions_df.cap_invested.std(),
-        positions_df.fees.mean(),
-        positions_df.fees.std(),
-        positions_df.groupby("stock").open_day.count().mean(),
-        positions_df.groupby("stock").open_day.count().std(),
-    )
+    if not positions:
+        logger.warn(f"No positions opened for {classifier}, {args.year}")
+        ts = TradingStats(
+            args.year,
+            classifier,
+            args.initial_capital,
+            args.initial_capital,
+            args.initial_capital,
+            args.initial_capital,
+            args.initial_capital,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        )
+    else:
+
+        # create row for classifiers comparison
+        ts = TradingStats(
+            args.year,
+            classifier,
+            results_df.equity_by_day.iloc[-1],
+            results_df.equity_by_day.max(),
+            results_df.equity_by_day.min(),
+            results_df.equity_by_day.mean(),
+            results_df.equity_by_day.std(),
+            positions_df.shape[0],
+            positions_df.loc[
+                positions_df.optype == trading.TradingOperationType.LONG
+            ].shape[0],
+            positions_df.loc[
+                positions_df.optype == trading.TradingOperationType.SHORT
+            ].shape[0],
+            100
+            * positions_df.loc[
+                positions_df.close_cause == str(trading.CloseCause.STOP_LOSS)
+            ].shape[0]
+            / positions_df.shape[0],
+            100
+            * positions_df.loc[
+                positions_df.close_cause == str(trading.CloseCause.INVERSE)
+            ].shape[0]
+            / positions_df.shape[0],
+            100
+            * positions_df.loc[
+                positions_df.close_cause == str(trading.CloseCause.MAX_LENGTH)
+            ].shape[0]
+            / positions_df.shape[0],
+            positions_df.length_in_days.mean(),
+            positions_df.length_in_days.std(),
+            positions_df["return"].mean(),
+            positions_df["return"].std(),
+            positions_df.profit_perc.mean(),
+            positions_df.profit_perc.std(),
+            positions_df.cap_invested.mean(),
+            positions_df.cap_invested.std(),
+            positions_df.fees.mean(),
+            positions_df.fees.std(),
+            positions_df.groupby("stock").open_day.count().mean(),
+            positions_df.groupby("stock").open_day.count().std(),
+        )
+
+
     #  save operations history
     positions_df.to_csv(
         join(output_dir, f"{classifier}_{OP_FILE}"),
@@ -205,14 +234,17 @@ def read_signals(args, classifier):
 
 
 def get_classifiers(family="ml"):
+    determ = ["L3", "L3-LVL1", "GNB", "SVC", "KNN", "LG", "RFC"]
+    seeded = [f"MLP_{i}" for i in range(10)] + [f"LSTM_{i}" for i in range(10)]
 
     if family == "ml":
-        determ = ["L3", "L3-LVL1", "GNB", "SVC", "KNN", "LG", "RFC"]
-        seeded = [f"MLP_{i}" for i in range(10)] + [f"LSTM_{i}" for i in range(10)]
         return determ + seeded
 
     elif family == "fuzzy":
         return ["L3", "L3-LVL1"] + FUZZY_CLASSIFIERS
+
+    elif family == "ml+fuzzy":
+        return determ + seeded + FUZZY_CLASSIFIERS
 
     elif family == "deeprl":
         return ["L3", "L3-LVL1"] + DEEPRL_SYSTEMS
@@ -242,6 +274,7 @@ def main():
     parser.add_argument("--percentage_fee", type=float, default=0.0015)
 
     parser.add_argument("--log_comet", action="store_true")
+    parser.add_argument("--family", type=str, default="ml")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -268,13 +301,14 @@ def main():
     stocks = load_stock_entities("data/raw")
 
     if not exists(output_dir):
-        mkdir(output_dir)
+        makedirs(output_dir, exist_ok=True)
 
     summary_stats = list()
     equity_fig, equity_ax = plt.subplots(figsize=(14, 8))
 
     seeded_results = list()
-    for classifier in tqdm(get_classifiers(), desc="Clf"):
+    equities = list()
+    for classifier in tqdm(get_classifiers(args.family), desc="Clf"):
 
         signals_df = read_signals(args, classifier)
         if signals_df is None:
@@ -286,18 +320,27 @@ def main():
             args, classifier, stocks, signals_df, output_dir
         )
         summary_stats.append(ts)
+        equities.append(results_df.equity_by_day)
 
         #  VISUALIZATION
 
         base_classifier = classifier.split("_")[0]
-        # equity vs other classifiers
-        label = EQUITY_LINES[base_classifier].get("label", base_classifier)
-        color = EQUITY_LINES[base_classifier].get("color", DEFAULT_COLOR)
-        marker = EQUITY_LINES[base_classifier].get("marker", DEFAULT_MARKER)
-        marker_size = EQUITY_LINES[base_classifier].get(
-            "marker_size", DEFAULT_MARKER_SIZE
-        )
-        lw = EQUITY_LINES[base_classifier].get("lw", DEFAULT_LINE_WIDTH)
+
+        if base_classifier in EQUITY_LINES:
+            # equity vs other classifiers
+            label = EQUITY_LINES[base_classifier].get("label", base_classifier)
+            color = EQUITY_LINES[base_classifier].get("color", EQUITY_DEFAULT["COLOR"])
+            marker = EQUITY_LINES[base_classifier].get("marker", EQUITY_DEFAULT["MARKER"])
+            marker_size = EQUITY_LINES[base_classifier].get(
+                "marker_size", EQUITY_DEFAULT["MARKER_SIZE"]
+            )
+            lw = EQUITY_LINES[base_classifier].get("lw", EQUITY_DEFAULT["LINE_WIDTH"])
+        else:
+            label = base_classifier
+            color = EQUITY_DEFAULT["COLOR"]
+            marker = EQUITY_DEFAULT["MARKER"]
+            marker_size = EQUITY_DEFAULT["MARKER_SIZE"]
+            lw = EQUITY_DEFAULT["LINE_WIDTH"]
 
         # - Plot: equity line
 
@@ -393,6 +436,7 @@ def main():
         # if args.log_comet:
         #     experiment.log_image(join(output_dir, f"{classifier}_{OP_TREND_FILE}"))
 
+
     ticks = pd.to_datetime(
         np.linspace(results_df.index[0].value, results_df.index[-1].value, 6)
     )
@@ -402,6 +446,10 @@ def main():
     equity_ax.set_xlabel("Date")
     equity_ax.set_xticks(ticks)
     equity_fig.savefig(join(output_dir, EQUITY_FIG_FILE))
+
+    # save a file with equities
+    equities = pd.concat(equities, axis=1, keys=get_classifiers(args.family))
+    equities.to_csv(join(output_dir, EQUITY_FILE), index_label="Date")
 
     if args.log_comet:
         experiment.log_figure(figure=equity_fig, figure_name=EQUITY_FIG_FILE)

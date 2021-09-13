@@ -1,4 +1,5 @@
 EQUITY_LINES = {
+    # ml
     "L3": {"color": "#7570b3", "marker": "^", "lw": 3.5},
     "L3-LVL1": {"color": "#e6ab02", "marker": "v", "lw": 3.5},
     "MLP": {"color": "#1b9e77", "marker": "o"},
@@ -8,9 +9,22 @@ EQUITY_LINES = {
     "KNN": {"color": "#d95f02", "marker": "s"},
     "GNB": {"color": "black", "marker": "*"},
     "LG": {"color": "green", "marker": "D"},
+
+    # fuzzy
+    "FRR": {"color": "#1b9e77", "marker": "o"},
+    "FPTTD": {"color": "orange", "marker": "p"},
+    "EMEC": {"color": "#e7298a", "marker": "P"},
+
+    # deeprl
+    "SAC": {"color": "#1b9e77", "marker": "o"},
+    "A2C": {"color": "orange", "marker": "p"},
+    "DDPG": {"color": "#e7298a", "marker": "P"},
 }
 
-DEFAULT_MARKER = "o"
-DEFAULT_COLOR = "black"
-DEFAULT_MARKER_SIZE = 12
-DEFAULT_LINE_WIDTH = 2.3
+EQUITY_DEFAULT = {
+    "MARKER": "o",
+    "COLOR": "black",
+    "MARKER_SIZE": 12,
+    "LINE_WIDTH": 2.3,
+}
+
